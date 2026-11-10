@@ -110,4 +110,4 @@ Thông số đã được chủ dự án duyệt ngày 10/11/2026:
 
 **Tự động mất danh hiệu:** ngay khi bất kỳ thông số nào xuống dưới ngưỡng. Hệ thống kiểm tra lại sau mỗi đánh giá mới, mỗi quyết định kiểm duyệt và mỗi chu kỳ tháng. Doanh nghiệp được thông báo kèm lý do; thao tác được ghi audit log.
 
-Còn chờ duyệt: mỗi tháng game chọn ngẫu nhiên tối đa 3 doanh nghiệp mới trong nhóm đủ điều kiện. Các con số nằm ở `FAVORITE_PARAMS` trong `packages/engine/src/community.ts`.
+**Xét chọn:** mỗi tháng game chọn ngẫu nhiên tối đa 5 doanh nghiệp mới trong nhóm đủ điều kiện. Các con số nằm ở `FAVORITE_PARAMS` trong `packages/engine/src/community.ts`.

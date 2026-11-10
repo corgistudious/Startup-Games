@@ -140,7 +140,7 @@ describe('titles', () => {
   });
 
   it('uses the approved thresholds: 10 reviews, average 4.5, 85% positive', () => {
-    expect(FAVORITE_PARAMS).toMatchObject({ minReviews: 10, minAvg: 4.5, minPositive: 0.85 });
+    expect(FAVORITE_PARAMS).toMatchObject({ minReviews: 10, minAvg: 4.5, minPositive: 0.85, winners: 5 });
     expect(FAVORITE_PARAMS).not.toHaveProperty('months');
     expect(favoriteFailures({ reviews: 10, avg: 4.5, positive: 0.85, manipulated: false })).toEqual([]);
     expect(favoriteFailures({ reviews: 9, avg: 4.9, positive: 1, manipulated: false })).toHaveLength(1);

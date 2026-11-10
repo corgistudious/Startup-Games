@@ -204,9 +204,9 @@ export async function revokeTitle(tx: Tx, adminId: string, companyId: string, ti
  * The title is lost automatically as soon as any threshold is no longer met
  * (checked after every review, moderation decision and at each monthly cycle).
  * The title has no fixed term: it is kept for as long as every threshold is met.
- * `winners` (max new titles per game month) is still the original proposal, pending approval.
+ * Up to 5 new titles per game month (approved 10/11/2026).
  */
-export const FAVORITE_PARAMS = { minReviews: 10, minAvg: 4.5, minPositive: 0.85, winners: 3 };
+export const FAVORITE_PARAMS = { minReviews: 10, minAvg: 4.5, minPositive: 0.85, winners: 5 };
 
 export type FavoriteStats = { reviews: number; avg: number; positive: number; manipulated: boolean };
 
