@@ -203,9 +203,10 @@ export async function revokeTitle(tx: Tx, adminId: string, companyId: string, ti
  * Selection: up to `winners` random companies per game month among those eligible.
  * The title is lost automatically as soon as any threshold is no longer met
  * (checked after every review, moderation decision and at each monthly cycle).
- * `months` (title term) and `winners` are still the original proposal, pending approval.
+ * The title has no fixed term: it is kept for as long as every threshold is met.
+ * `winners` (max new titles per game month) is still the original proposal, pending approval.
  */
-export const FAVORITE_PARAMS = { minReviews: 10, minAvg: 4.5, minPositive: 0.85, winners: 3, months: 4 };
+export const FAVORITE_PARAMS = { minReviews: 10, minAvg: 4.5, minPositive: 0.85, winners: 3 };
 
 export type FavoriteStats = { reviews: number; avg: number; positive: number; manipulated: boolean };
 
@@ -248,7 +249,6 @@ export async function recheckFavorite(tx: Tx, companyId: string): Promise<boolea
 export async function selectFavorites(tx: Tx, month: number, seedFn: () => number) {
   const cycle = `month:${month}`;
   if (await maybe(tx, 'SELECT 1 FROM favorite_cycles WHERE cycle_key=$1', [cycle])) return null;
-  await tx.query(`UPDATE company_titles SET revoked_at=now(), revoke_reason='Hết thời hạn' WHERE title='yeu_thich' AND revoked_at IS NULL AND expires_at < now()`);
   // Safety net: re-check current holders (covers anything that changed outside review flows).
   const holders = await many<{ company_id: string }>(tx, `SELECT company_id FROM company_titles WHERE title='yeu_thich' AND revoked_at IS NULL`);
   for (const h of holders) await recheckFavorite(tx, h.company_id);
@@ -268,8 +268,8 @@ export async function selectFavorites(tx: Tx, month: number, seedFn: () => numbe
   while (bag.length && chosen.length < P.winners) chosen.push(bag.splice(Math.floor(seedFn() * bag.length), 1)[0]!);
   for (const id of chosen) {
     await tx.query(
-      `INSERT INTO company_titles (company_id, title, reason, expires_at, cycle_key) VALUES ($1,'yeu_thich',$2, now() + make_interval(mins => $3), $4)`,
-      [id, 'Được cộng đồng đánh giá tích cực, chọn ngẫu nhiên trong nhóm đủ điều kiện', Math.round((P.months * 7 * 1440) / 30), cycle],
+      `INSERT INTO company_titles (company_id, title, reason, cycle_key) VALUES ($1,'yeu_thich',$2,$3)`,
+      [id, 'Được cộng đồng đánh giá tích cực, chọn ngẫu nhiên trong nhóm đủ điều kiện', cycle],
     );
     const c = await one<{ owner_user_id: string | null; name: string }>(tx, 'SELECT owner_user_id, name FROM companies WHERE id=$1', [id]);
     if (c.owner_user_id) await notify(tx, c.owner_user_id, 'community', 'Danh hiệu Yêu Thích', `${c.name} được cộng đồng yêu thích!`, { companyId: id });

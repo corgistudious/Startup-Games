@@ -106,6 +106,8 @@ Thông số đã được chủ dự án duyệt ngày 10/11/2026:
 | Tỷ lệ đánh giá tích cực (4–5 sao) | ≥ 85% |
 | Loại trừ | Doanh nghiệp có báo cáo thao túng đánh giá bị xác nhận |
 
+**Không có thời hạn cố định:** danh hiệu được giữ chừng nào doanh nghiệp còn đạt đủ cả ba ngưỡng.
+
 **Tự động mất danh hiệu:** ngay khi bất kỳ thông số nào xuống dưới ngưỡng. Hệ thống kiểm tra lại sau mỗi đánh giá mới, mỗi quyết định kiểm duyệt và mỗi chu kỳ tháng. Doanh nghiệp được thông báo kèm lý do; thao tác được ghi audit log.
 
-Còn chờ duyệt: chọn tối đa 3 doanh nghiệp mỗi tháng game và thời hạn danh hiệu 4 tháng game. Các con số nằm ở `FAVORITE_PARAMS` trong `packages/engine/src/community.ts`.
+Còn chờ duyệt: mỗi tháng game chọn ngẫu nhiên tối đa 3 doanh nghiệp mới trong nhóm đủ điều kiện. Các con số nằm ở `FAVORITE_PARAMS` trong `packages/engine/src/community.ts`.

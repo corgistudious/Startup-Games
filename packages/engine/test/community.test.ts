@@ -141,6 +141,7 @@ describe('titles', () => {
 
   it('uses the approved thresholds: 10 reviews, average 4.5, 85% positive', () => {
     expect(FAVORITE_PARAMS).toMatchObject({ minReviews: 10, minAvg: 4.5, minPositive: 0.85 });
+    expect(FAVORITE_PARAMS).not.toHaveProperty('months');
     expect(favoriteFailures({ reviews: 10, avg: 4.5, positive: 0.85, manipulated: false })).toEqual([]);
     expect(favoriteFailures({ reviews: 9, avg: 4.9, positive: 1, manipulated: false })).toHaveLength(1);
     expect(favoriteFailures({ reviews: 20, avg: 4.49, positive: 1, manipulated: false })).toHaveLength(1);
@@ -149,6 +150,10 @@ describe('titles', () => {
 
   it('is revoked automatically the moment any threshold is no longer met', async () => {
     const holds = () => one<{ n: number }>(db, `SELECT count(*)::int AS n FROM company_titles WHERE company_id=$1 AND title='yeu_thich' AND revoked_at IS NULL`, [company]);
+    expect((await holds()).n).toBe(1);
+    // No fixed term: the title carries no expiry and survives later monthly cycles while thresholds hold.
+    expect((await one<{ expires_at: Date | null }>(db, `SELECT expires_at FROM company_titles WHERE company_id=$1 AND title='yeu_thich' AND revoked_at IS NULL`, [company])).expires_at).toBeNull();
+    await withTx(db, (tx) => selectFavorites(tx, 99, seeded('later')));
     expect((await holds()).n).toBe(1);
     // A single bad review that keeps every threshold satisfied does not remove the title.
     const u0 = await newPlayer(db, 'unhappy0');
