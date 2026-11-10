@@ -15,6 +15,7 @@ import {
   revokeTitle,
   selectFavorites,
   FAVORITE_PARAMS,
+  favoriteFailures,
   reportReview,
   moderateReview,
 } from '../src/community';
@@ -137,4 +138,31 @@ describe('titles', () => {
     expect(res!.chosen).toEqual([company]);
     expect(await withTx(db, (tx) => selectFavorites(tx, 1, seeded('t')))).toBeNull();
   });
+
+  it('uses the approved thresholds: 10 reviews, average 4.5, 85% positive', () => {
+    expect(FAVORITE_PARAMS).toMatchObject({ minReviews: 10, minAvg: 4.5, minPositive: 0.85 });
+    expect(favoriteFailures({ reviews: 10, avg: 4.5, positive: 0.85, manipulated: false })).toEqual([]);
+    expect(favoriteFailures({ reviews: 9, avg: 4.9, positive: 1, manipulated: false })).toHaveLength(1);
+    expect(favoriteFailures({ reviews: 20, avg: 4.49, positive: 1, manipulated: false })).toHaveLength(1);
+    expect(favoriteFailures({ reviews: 20, avg: 4.8, positive: 0.84, manipulated: false })).toHaveLength(1);
+  });
+
+  it('is revoked automatically the moment any threshold is no longer met', async () => {
+    const holds = () => one<{ n: number }>(db, `SELECT count(*)::int AS n FROM company_titles WHERE company_id=$1 AND title='yeu_thich' AND revoked_at IS NULL`, [company]);
+    expect((await holds()).n).toBe(1);
+    // A single bad review that keeps every threshold satisfied does not remove the title.
+    const u0 = await newPlayer(db, 'unhappy0');
+    await withTx(db, (tx) => submitReview(tx, u0, company, 2, `${BODY} Hôm nay phải chờ khá lâu mới được phục vụ.`));
+    expect((await holds()).n).toBe(1);
+    // Dropping below 85% positive (and 4.5 average) revokes it immediately.
+    for (let i = 1; i <= 2; i++) {
+      const u = await newPlayer(db, `unhappy${i}`);
+      await withTx(db, (tx) => submitReview(tx, u, company, 1, `${BODY} Nhưng lần này bánh bị nguội và thái độ phục vụ kém.`));
+    }
+    expect((await holds()).n).toBe(0);
+    const t = await one<{ revoke_reason: string }>(db, `SELECT revoke_reason FROM company_titles WHERE company_id=$1 AND title='yeu_thich' ORDER BY granted_at DESC LIMIT 1`, [company]);
+    expect(t.revoke_reason).toMatch(/Tự động thu hồi/);
+    expect((await one<{ n: number }>(db, `SELECT count(*)::int AS n FROM audit_log WHERE action='title.auto_revoke' AND target_id=$1`, [company])).n).toBe(1);
+  });
+
 });

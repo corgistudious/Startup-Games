@@ -61,7 +61,7 @@ Ngày cập nhật: 10/11/2026. Quy ước: **Xong** là đã có backend, giao 
 | Reviewer: thư mời, bài kiểm tra 5 câu, 15 uy tín, trừ 1 điểm mỗi 7 ngày thực, tự thu hồi ở 0, điểm đánh giá, 5 cấp 100/200/450/900/1.900 | Xong | Có test |
 | Reviewer đề cử | Xong | Chặn xung đột lợi ích; đếm theo số Reviewer khác nhau |
 | Tuyển Chọn | Xong | Chỉ Admin cấp và thu hồi, bắt buộc có lý do |
-| Yêu Thích | Xong | **Thông số đang là đề xuất, chờ phê duyệt** (xem bên dưới) |
+| Yêu Thích | Xong | Ngưỡng đã duyệt; tự thu hồi khi không còn đạt (xem bên dưới) |
 | Hộp thư, hỗ trợ, bảng xếp hạng, hồ sơ | Xong | |
 | Admin Dashboard | Xong | Chưa có quản lý sự kiện |
 
@@ -94,16 +94,17 @@ Ngày cập nhật: 10/11/2026. Quy ước: **Xong** là đã có backend, giao 
 - Các NPC lỗ nhẹ ở tháng đầu, rồi cửa hàng bán lẻ NPC tiến dần về hòa vốn. Nhà cung cấp lỗ vì chỉ có 4 cửa hàng NPC mua hàng; người chơi gia nhập sẽ tạo thêm cầu.
 - Trợ cấp dân cư đã được giảm sau mô phỏng; con số chính xác cần điều chỉnh tiếp.
 
-## Thông số đề xuất cho danh hiệu Yêu Thích (chờ duyệt)
+## Danh hiệu Yêu Thích
 
-| Thông số | Đề xuất |
+Thông số đã được chủ dự án duyệt ngày 10/11/2026:
+
+| Thông số | Giá trị |
 |---|---|
-| Số đánh giá hợp lệ tối thiểu | 8, từ 8 tài khoản khác nhau |
-| Điểm trung bình (có làm mượt Bayes, gốc 3,5 với trọng số 5) | ≥ 4,2 |
-| Tỷ lệ đánh giá 4–5 sao | ≥ 80% |
-| Loại trừ | Doanh nghiệp có báo cáo thao túng bị xác nhận |
-| Chu kỳ xét chọn | Mỗi tháng game (7 ngày game) |
-| Số doanh nghiệp được chọn | Tối đa 3, ngẫu nhiên trong nhóm đủ điều kiện |
-| Thời hạn danh hiệu | 4 tháng game (khoảng 22,4 giờ thực) |
+| Số đánh giá hợp lệ tối thiểu | 10, từ 10 tài khoản khác nhau |
+| Điểm trung bình | ≥ 4,5 |
+| Tỷ lệ đánh giá tích cực (4–5 sao) | ≥ 85% |
+| Loại trừ | Doanh nghiệp có báo cáo thao túng đánh giá bị xác nhận |
 
-Các con số nằm ở `FAVORITE_PARAMS` trong `packages/engine/src/community.ts`.
+**Tự động mất danh hiệu:** ngay khi bất kỳ thông số nào xuống dưới ngưỡng. Hệ thống kiểm tra lại sau mỗi đánh giá mới, mỗi quyết định kiểm duyệt và mỗi chu kỳ tháng. Doanh nghiệp được thông báo kèm lý do; thao tác được ghi audit log.
+
+Còn chờ duyệt: chọn tối đa 3 doanh nghiệp mỗi tháng game và thời hạn danh hiệu 4 tháng game. Các con số nằm ở `FAVORITE_PARAMS` trong `packages/engine/src/community.ts`.

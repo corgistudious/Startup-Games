@@ -38,6 +38,7 @@ export async function submitReview(tx: Tx, userId: string, companyId: string, ra
     await checkRankUp(tx, userId);
   }
   if (c.owner_user_id) await notify(tx, c.owner_user_id, 'community', `Đánh giá mới ${rating}★`, `${c.name} nhận một đánh giá mới.`, { companyId });
+  await recheckFavorite(tx, companyId);
   return r.id;
 }
 
@@ -64,6 +65,8 @@ export async function moderateReview(tx: Tx, adminId: string, reviewId: string, 
   await tx.query(`UPDATE reviews SET status=$2, hidden_reason=$3 WHERE id=$1`, [reviewId, hide ? 'hidden' : 'visible', hide ? reason : null]);
   await tx.query(`UPDATE review_reports SET status=$2 WHERE review_id=$1 AND status='open'`, [reviewId, hide ? 'upheld' : 'dismissed']);
   await audit(tx, adminId, hide ? 'review.hide' : 'review.restore', 'review', reviewId, { reason });
+  const rv = await one<{ company_id: string }>(tx, 'SELECT company_id FROM reviews WHERE id=$1', [reviewId]);
+  await recheckFavorite(tx, rv.company_id);
 }
 
 // ---------------- Reviewer programme ----------------
@@ -192,32 +195,77 @@ export async function revokeTitle(tx: Tx, adminId: string, companyId: string, ti
 }
 
 /**
- * PROPOSED parameters for "Yêu Thích" (pending owner approval, see docs):
- * at least 8 visible reviews from distinct accounts, Bayesian average >= 4.2,
- * >= 80% positive (4-5★), no upheld manipulation reports; up to 3 random winners per
- * game month; title lasts 4 game months (≈ 22.4 real hours).
+ * "Yêu Thích" rules (thresholds approved by the project owner 10/11/2026):
+ *  - at least 10 visible reviews from distinct accounts,
+ *  - average rating >= 4.5,
+ *  - >= 85% positive reviews (4-5★),
+ *  - no upheld manipulation report.
+ * Selection: up to `winners` random companies per game month among those eligible.
+ * The title is lost automatically as soon as any threshold is no longer met
+ * (checked after every review, moderation decision and at each monthly cycle).
+ * `months` (title term) and `winners` are still the original proposal, pending approval.
  */
-export const FAVORITE_PARAMS = { minReviews: 8, minBayes: 4.2, minPositive: 0.8, winners: 3, months: 4, prior: { mean: 3.5, weight: 5 } };
+export const FAVORITE_PARAMS = { minReviews: 10, minAvg: 4.5, minPositive: 0.85, winners: 3, months: 4 };
+
+export type FavoriteStats = { reviews: number; avg: number; positive: number; manipulated: boolean };
+
+export async function favoriteStats(q: Queryable, companyId: string): Promise<FavoriteStats> {
+  const r = await one<{ n: number; avg: number | null; positive: number | null; manipulated: boolean }>(
+    q,
+    `SELECT count(DISTINCT r.author_id)::int AS n, AVG(r.rating)::float AS avg, AVG(CASE WHEN r.rating >= 4 THEN 1 ELSE 0 END)::float AS positive,
+            EXISTS (SELECT 1 FROM review_reports rr JOIN reviews r2 ON r2.id = rr.review_id WHERE r2.company_id = $1 AND rr.status='upheld') AS manipulated
+       FROM reviews r WHERE r.company_id = $1 AND r.status = 'visible'`,
+    [companyId],
+  );
+  return { reviews: r.n, avg: r.avg ?? 0, positive: r.positive ?? 0, manipulated: r.manipulated };
+}
+
+/** Which thresholds a company currently fails (empty = eligible). */
+export function favoriteFailures(s: FavoriteStats): string[] {
+  const P = FAVORITE_PARAMS;
+  const out: string[] = [];
+  if (s.reviews < P.minReviews) out.push(`số đánh giá hợp lệ còn ${s.reviews}/${P.minReviews}`);
+  if (s.avg < P.minAvg) out.push(`điểm trung bình còn ${s.avg.toFixed(2)}/${P.minAvg}`);
+  if (s.positive < P.minPositive) out.push(`tỷ lệ đánh giá tích cực còn ${Math.round(s.positive * 100)}%/${Math.round(P.minPositive * 100)}%`);
+  if (s.manipulated) out.push('có báo cáo thao túng đánh giá được xác nhận');
+  return out;
+}
+
+/** Revoke "Yêu Thích" immediately if the company no longer meets every threshold. */
+export async function recheckFavorite(tx: Tx, companyId: string): Promise<boolean> {
+  const held = await maybe<{ id: string }>(tx, `SELECT id FROM company_titles WHERE company_id=$1 AND title='yeu_thich' AND revoked_at IS NULL FOR UPDATE`, [companyId]);
+  if (!held) return false;
+  const failures = favoriteFailures(await favoriteStats(tx, companyId));
+  if (!failures.length) return false;
+  const reason = `Tự động thu hồi: ${failures.join('; ')}`;
+  await tx.query(`UPDATE company_titles SET revoked_at=now(), revoke_reason=$2 WHERE id=$1`, [held.id, reason]);
+  await audit(tx, null, 'title.auto_revoke', 'company', companyId, { title: 'yeu_thich', failures });
+  const c = await one<{ owner_user_id: string | null; name: string }>(tx, 'SELECT owner_user_id, name FROM companies WHERE id=$1', [companyId]);
+  if (c.owner_user_id) await notify(tx, c.owner_user_id, 'community', 'Mất danh hiệu Yêu Thích', `${c.name}: ${failures.join('; ')}.`, { companyId });
+  return true;
+}
 
 export async function selectFavorites(tx: Tx, month: number, seedFn: () => number) {
   const cycle = `month:${month}`;
   if (await maybe(tx, 'SELECT 1 FROM favorite_cycles WHERE cycle_key=$1', [cycle])) return null;
   await tx.query(`UPDATE company_titles SET revoked_at=now(), revoke_reason='Hết thời hạn' WHERE title='yeu_thich' AND revoked_at IS NULL AND expires_at < now()`);
+  // Safety net: re-check current holders (covers anything that changed outside review flows).
+  const holders = await many<{ company_id: string }>(tx, `SELECT company_id FROM company_titles WHERE title='yeu_thich' AND revoked_at IS NULL`);
+  for (const h of holders) await recheckFavorite(tx, h.company_id);
   const P = FAVORITE_PARAMS;
-  const eligible = await many<{ company_id: string; n: number; avg: number; positive: number }>(
+  const candidates = await many<{ company_id: string }>(
     tx,
-    `SELECT r.company_id, count(*)::int AS n, AVG(r.rating)::float AS avg, AVG(CASE WHEN r.rating >= 4 THEN 1 ELSE 0 END)::float AS positive
-       FROM reviews r JOIN companies c ON c.id = r.company_id AND c.status IN ('active','insolvent')
+    `SELECT r.company_id FROM reviews r JOIN companies c ON c.id = r.company_id AND c.status IN ('active','insolvent')
       WHERE r.status='visible'
-        AND NOT EXISTS (SELECT 1 FROM review_reports rr JOIN reviews r2 ON r2.id = rr.review_id WHERE r2.company_id = r.company_id AND rr.status='upheld')
         AND NOT EXISTS (SELECT 1 FROM company_titles t WHERE t.company_id = r.company_id AND t.title='yeu_thich' AND t.revoked_at IS NULL)
       GROUP BY r.company_id HAVING count(DISTINCT r.author_id) >= $1`,
     [P.minReviews],
   );
-  const pool = eligible.filter((e) => (P.prior.mean * P.prior.weight + e.avg * e.n) / (P.prior.weight + e.n) >= P.minBayes && e.positive >= P.minPositive);
+  const pool: string[] = [];
+  for (const c of candidates) if (!favoriteFailures(await favoriteStats(tx, c.company_id)).length) pool.push(c.company_id);
   const chosen: string[] = [];
   const bag = [...pool];
-  while (bag.length && chosen.length < P.winners) chosen.push(bag.splice(Math.floor(seedFn() * bag.length), 1)[0]!.company_id);
+  while (bag.length && chosen.length < P.winners) chosen.push(bag.splice(Math.floor(seedFn() * bag.length), 1)[0]!);
   for (const id of chosen) {
     await tx.query(
       `INSERT INTO company_titles (company_id, title, reason, expires_at, cycle_key) VALUES ($1,'yeu_thich',$2, now() + make_interval(mins => $3), $4)`,
