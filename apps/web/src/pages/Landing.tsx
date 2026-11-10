@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Factory, LineChart, Users, Landmark, ShieldCheck, Clock3 } from 'lucide-react';
 import { Button, Field } from '@/components/ui';
 import { Brand } from '@/components/Shell';
@@ -7,6 +8,7 @@ import { toast, useSession } from '@/lib/store';
 import { useGameClock, useWorld } from '@/lib/hooks';
 import { WEEKDAY_NAMES } from '@startup/shared';
 import { num } from '@/lib/format';
+import { LANGUAGES } from '@/i18n';
 
 const FEATURES = [
   { icon: Factory, title: 'Sản xuất thật', text: 'Nguyên liệu, máy móc, nhân công theo ca và thời gian sản xuất. Thiếu một thứ là dây chuyền dừng.' },
@@ -16,6 +18,7 @@ const FEATURES = [
 ];
 
 export default function Landing() {
+  const { t, i18n } = useTranslation();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [form, setForm] = useState({ username: '', password: '', displayName: '' });
   const [busy, setBusy] = useState(false);
@@ -30,7 +33,7 @@ export default function Landing() {
       const body = mode === 'login' ? { username: form.username, password: form.password } : form;
       const r = await api<{ token: string }>(`/auth/${mode}`, { method: 'POST', body });
       login(r.token);
-      toast.ok(mode === 'login' ? 'Chào mừng trở lại!' : 'Tài khoản đã sẵn sàng. Bạn nhận 600 triệu ₫ vốn khởi nghiệp.');
+      toast.ok(t(mode === 'login' ? 'Chào mừng trở lại!' : 'Tài khoản đã sẵn sàng. Bạn nhận 600 triệu ₫ vốn khởi nghiệp.'));
     } catch (err) {
       toast.err((err as Error).message);
     } finally {
@@ -41,30 +44,39 @@ export default function Landing() {
   return (
     <div className="mx-auto grid min-h-dvh max-w-6xl items-center gap-10 px-4 py-10 lg:grid-cols-[1.15fr_1fr] lg:px-8">
       <div className="rise">
-        <Brand />
+        <div className="flex items-center justify-between gap-3">
+          <Brand />
+          <select aria-label={t('Ngôn ngữ')} className="field !w-auto !py-1.5 text-xs" value={i18n.language} onChange={(e) => void i18n.changeLanguage(e.target.value)}>
+            {LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+        </div>
         <h1 className="mt-8 text-4xl font-semibold leading-tight sm:text-5xl">
-          Xây đế chế kinh doanh
+          {t('Xây đế chế kinh doanh')}
           <br />
-          <span className="bg-gradient-to-r from-sky-200 via-sky-400 to-sky-600 bg-clip-text text-transparent">trong một nền kinh tế sống.</span>
+          <span className="bg-gradient-to-r from-sky-200 via-sky-400 to-sky-600 bg-clip-text text-transparent">{t('trong một nền kinh tế sống.')}</span>
         </h1>
         <p className="mt-4 max-w-xl text-ink-300">
-          Bắt đầu với 600 triệu đồng. Thành lập doanh nghiệp, tuyển người, mua nguyên liệu, sản xuất, cạnh tranh giá với người chơi khác và NPC. Thế giới vẫn chạy khi bạn offline.
+          {t('Bắt đầu với 600 triệu đồng. Thành lập doanh nghiệp, tuyển người, mua nguyên liệu, sản xuất, cạnh tranh giá với người chơi khác và NPC. Thế giới vẫn chạy khi bạn offline.')}
         </p>
         <div className="mt-6 flex flex-wrap gap-3 text-sm">
           {clock && (
             <span className="chip bg-sky-400/12 py-1.5 text-sky-100 ring-1 ring-sky-400/30">
-              <Clock3 size={13} /> Giờ thế giới: {String(clock.hour).padStart(2, '0')}:{String(clock.minuteOfHour).padStart(2, '0')} {WEEKDAY_NAMES[clock.weekday]}
+              <Clock3 size={13} /> {t('Giờ thế giới')}: {String(clock.hour).padStart(2, '0')}:{String(clock.minuteOfHour).padStart(2, '0')} {WEEKDAY_NAMES[clock.weekday]}
             </span>
           )}
-          {world && <span className="chip bg-ink-700/60 py-1.5 text-ink-200">{num(world.stats.companies)} doanh nghiệp đang hoạt động</span>}
-          {world && <span className="chip bg-ink-700/60 py-1.5 text-ink-200">{num(world.stats.employed)} người đang đi làm</span>}
+          {world && <span className="chip bg-ink-700/60 py-1.5 text-ink-200">{num(world.stats.companies)} {t('doanh nghiệp đang hoạt động')}</span>}
+          {world && <span className="chip bg-ink-700/60 py-1.5 text-ink-200">{num(world.stats.employed)} {t('người đang đi làm')}</span>}
         </div>
         <div className="mt-8 grid gap-3 sm:grid-cols-2">
           {FEATURES.map((f) => (
             <div key={f.title} className="panel p-4">
               <f.icon className="text-sky-300" size={20} />
-              <div className="mt-2 font-medium text-white">{f.title}</div>
-              <p className="mt-1 text-sm text-ink-400">{f.text}</p>
+              <div className="mt-2 font-medium text-white">{t(f.title)}</div>
+              <p className="mt-1 text-sm text-ink-400">{t(f.text)}</p>
             </div>
           ))}
         </div>
@@ -74,24 +86,24 @@ export default function Landing() {
         <div className="mb-6 grid grid-cols-2 gap-1 rounded-xl bg-ink-950/60 p-1" role="tablist">
           {(['login', 'register'] as const).map((m) => (
             <button key={m} type="button" role="tab" aria-selected={mode === m} onClick={() => setMode(m)} className={`min-h-[42px] rounded-lg text-sm font-medium transition ${mode === m ? 'bg-sky-400/15 text-sky-100 ring-1 ring-sky-400/40' : 'text-ink-400'}`}>
-              {m === 'login' ? 'Đăng nhập' : 'Tạo tài khoản'}
+              {t(m === 'login' ? 'Đăng nhập' : 'Tạo tài khoản')}
             </button>
           ))}
         </div>
         <div className="space-y-4">
-          <Field label="Tên đăng nhập">{(id) => <input id={id} className="field" autoComplete="username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required minLength={3} />}</Field>
+          <Field label={t('Tên đăng nhập')}>{(id) => <input id={id} className="field" autoComplete="username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required minLength={3} />}</Field>
           {mode === 'register' && (
-            <Field label="Tên hiển thị (tên doanh nhân)">{(id) => <input id={id} className="field" value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} required minLength={2} />}</Field>
+            <Field label={t('Tên hiển thị (tên doanh nhân)')}>{(id) => <input id={id} className="field" value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} required minLength={2} />}</Field>
           )}
-          <Field label="Mật khẩu" hint={mode === 'register' ? 'Tối thiểu 10 ký tự, gồm chữ và số.' : undefined}>
+          <Field label={t('Mật khẩu')} hint={mode === 'register' ? t('Tối thiểu 10 ký tự, gồm chữ và số.') : undefined}>
             {(id) => <input id={id} type="password" className="field" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required minLength={mode === 'register' ? 10 : 1} />}
           </Field>
         </div>
         <Button type="submit" size="lg" shimmer loading={busy} className="mt-6 w-full">
-          {mode === 'login' ? 'Vào thế giới kinh doanh' : 'Bắt đầu khởi nghiệp'}
+          {t(mode === 'login' ? 'Vào thế giới kinh doanh' : 'Bắt đầu khởi nghiệp')}
         </Button>
         <p className="mt-4 flex items-center gap-2 text-xs text-ink-400">
-          <ShieldCheck size={14} className="text-sky-300" /> Mật khẩu được băm bằng scrypt. Không ai, kể cả Ban Quản Trị, xem được mật khẩu của bạn.
+          <ShieldCheck size={14} className="text-sky-300" /> {t('Mật khẩu được băm bằng scrypt. Không ai, kể cả Ban Quản Trị, xem được mật khẩu của bạn.')}
         </p>
       </form>
     </div>

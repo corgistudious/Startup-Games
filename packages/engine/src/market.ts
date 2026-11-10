@@ -2,7 +2,9 @@ import type { Tx } from './db';
 import { many } from './db';
 import { post, SYS, balance } from './ledger';
 import { C } from './companies';
-import { isOnShift, isOpen, toGameDate, type ShiftKind } from '@startup/shared';
+import { isOpen, toGameDate, type ShiftKind } from '@startup/shared';
+import { workState } from './workforce';
+import { branchTraffic } from './groups';
 import { ECON } from './config';
 
 type Seller = {
@@ -51,12 +53,19 @@ export async function marketTick(tx: Tx, tick: number, minute: number) {
       WHERE l.active AND NOT l.b2b AND i.qty - i.reserved > 0
       ORDER BY l.company_id, l.good_code`,
   );
+  const extraTraffic = await branchTraffic(tx);
+  for (const s of sellers) s.traffic += extraTraffic.get(s.company_id) ?? 0;
   const open = sellers.filter((s) => isOpen(s.open_hour, s.close_hour, s.days_mask, d.weekday, d.minuteOfDay));
   if (!open.length) return { revenue: 0 };
 
-  const staff = await many<{ company_id: string; shift: ShiftKind }>(tx, `SELECT company_id, shift FROM people WHERE department='ban_hang' AND company_id = ANY($1)`, [[...new Set(open.map((s) => s.company_id))]]);
+  const staffRows = await many<{ company_id: string; shift: ShiftKind; leave_until_minute: number | null; overtime_hours: number }>(
+    tx,
+    `SELECT p.company_id, p.shift, p.leave_until_minute, c.overtime_hours FROM people p JOIN companies c ON c.id = p.company_id WHERE p.department='ban_hang' AND p.company_id = ANY($1)`,
+    [[...new Set(open.map((s) => s.company_id))]],
+  );
+  const staff = staffRows.filter((p) => workState(p, p.overtime_hours, d.weekday, d.minuteOfDay, minute).working);
   const capacity = new Map<string, number>();
-  for (const p of staff) if (isOnShift(p.shift, d.weekday, d.minuteOfDay)) capacity.set(p.company_id, (capacity.get(p.company_id) ?? 0) + ECON.customersPerSalesStaff);
+  for (const p of staff) capacity.set(p.company_id, (capacity.get(p.company_id) ?? 0) + ECON.customersPerSalesStaff);
 
   type Sale = { qty: number; revenue: number; cost: number; customers: number; byGood: Map<string, { qty: number; revenue: number; cost: number }> };
   const sales = new Map<string, Sale>();
@@ -117,7 +126,7 @@ export async function marketTick(tx: Tx, tick: number, minute: number) {
   }
   // Open shops with listings but nothing to sell (or nobody at the counter) disappoint customers.
   const servedOrStocked = new Set(open.filter((s) => (capacity.get(s.company_id) ?? 0) > 0 || sales.has(s.company_id)).map((s) => s.company_id));
-  const unstaffed = [...new Set(open.map((s) => s.company_id))].filter((id) => !servedOrStocked.has(id) && !staff.some((p) => p.company_id === id && isOnShift(p.shift, d.weekday, d.minuteOfDay)));
+  const unstaffed = [...new Set(open.map((s) => s.company_id))].filter((id) => !servedOrStocked.has(id) && !staff.some((p) => p.company_id === id));
   if (unstaffed.length) await tx.query('UPDATE companies SET reputation = GREATEST(0, reputation - 0.01) WHERE id = ANY($1)', [unstaffed]);
   return { revenue: spentTotal, sellers: sales.size };
 }

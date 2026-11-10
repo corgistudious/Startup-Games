@@ -46,3 +46,26 @@ export const ticketReplySchema = z.object({ body: z.string().trim().min(1).max(3
 export const reasonSchema = z.object({ reason: z.string().trim().min(5).max(300) });
 export const adminRoleSchema = z.object({ role: z.enum(['player', 'admin']), reason: z.string().trim().min(5).max(300) });
 export const broadcastSchema = z.object({ title: z.string().trim().min(3).max(120), body: z.string().trim().min(3).max(2000) });
+
+// ---- Expansion ----
+export const bonusSchema = z.object({ personIds: z.array(z.string().uuid()).min(1).max(200), amountEach: money });
+export const hrPolicySchema = z.object({ benefitLevel: z.number().int().min(0).max(3).optional(), overtimeHours: z.number().int().min(0).max(3).optional() });
+export const leaveSchema = z.object({ days: z.number().int().min(1).max(12) });
+export const contractProposalSchema = z.object({
+  sellerCompanyId: z.string().uuid(),
+  good: z.string().min(1).max(40),
+  qtyPerDelivery: qty,
+  unitPrice: money,
+  deliveries: z.number().int().min(1).max(60),
+  intervalDays: z.number().int().min(1).max(14),
+  depositRate: z.number().min(0).max(0.5),
+  penaltyRate: z.number().min(0).max(0.5),
+});
+export const inspectSchema = z.object({ accept: z.boolean(), reason: z.string().trim().max(500).optional() });
+export const disputeDecisionSchema = z.object({ refundRate: z.number().min(0).max(1), resolution: z.string().trim().min(5).max(500) });
+export const branchSchema = z.object({ location: z.string().min(1).max(40) });
+export const offerSchema = z.object({ targetCompanyId: z.string().uuid(), price: money, note: z.string().trim().max(300).default('') });
+export const depositSchema = z.object({ amount: money, termDays: z.union([z.literal(0), z.literal(7), z.literal(14), z.literal(28)]) });
+export const collateralLoanSchema = z.object({ amount: money, termDays: z.number().int().min(7).max(84), equipmentIds: z.array(z.string().uuid()).max(20).default([]) });
+export const delistSchema = z.object({ price: money });
+export const alertDecisionSchema = z.object({ resolution: z.string().trim().min(5).max(500), resume: z.boolean().default(false) });

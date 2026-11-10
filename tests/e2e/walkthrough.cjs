@@ -78,8 +78,34 @@ const check = (name, ok, extra = '') => { results.push(`${ok ? 'PASS' : 'FAIL'} 
   check('B2B purchase creates an in-transit shipment', (await page.locator('text=Đang vận chuyển').count()) > 0);
   await page.screenshot({ path: `${OUT}/06-supply.png` });
 
+  // HR policy (benefits + overtime)
+  await page.click('role=tab[name^="Nhân sự"]');
+  await page.waitForSelector('text=Chính sách nhân sự');
+  await page.getByLabel('Gói phúc lợi').selectOption('1');
+  await page.click('button:has-text("Lưu chính sách")');
+  await page.waitForSelector('text=Đã cập nhật chính sách nhân sự', { timeout: 10000 });
+  check('HR policy saved via UI', true);
+
+  // Long-term contract with an NPC supplier (auto-accepted when fair)
+  await page.click('role=tab[name="Hợp đồng"]');
+  await page.click('button:has-text("Đề nghị hợp đồng mua")');
+  const opt = await page.locator('[role=dialog] select >> nth=0').locator('option').nth(1).getAttribute('value');
+  await page.locator('[role=dialog] select >> nth=0').selectOption(opt);
+  await page.click('button:has-text("Gửi đề nghị")');
+  await page.waitForSelector('text=Đã gửi đề nghị hợp đồng', { timeout: 10000 });
+  await page.waitForTimeout(800);
+  check('Contract proposed and auto-accepted by NPC', (await page.locator('text=Đang hiệu lực').count()) > 0);
+  await page.screenshot({ path: `${OUT}/06b-contracts.png` });
+
+  await page.click('role=tab[name="Tập đoàn & M&A"]');
+  await page.waitForSelector('text=Vốn chủ sở hữu hợp nhất');
+  await page.screenshot({ path: `${OUT}/06c-group.png` });
+  check('Group tab renders', true);
+
   await page.click('role=tab[name="Tài chính & Báo cáo"]');
   await page.waitForSelector('text=Bảng cân đối kế toán');
+  check('Cash flow statement shown', (await page.locator('text=Lưu chuyển tiền tệ tháng này').count()) > 0);
+  check('Deposits panel shown', (await page.locator('text=Tiền gửi ngân hàng').count()) > 0);
   await page.screenshot({ path: `${OUT}/07-finance.png`, fullPage: false });
 
   for (const [path, file, text] of [
@@ -118,6 +144,9 @@ const check = (name, ok, extra = '') => { results.push(`${ok ? 'PASS' : 'FAIL'} 
   await ap.waitForSelector('text=Kiểm toán sổ cái', { timeout: 10000 });
   await ap.waitForTimeout(800);
   check('Admin ledger audit shows balanced', (await ap.locator('text=Cân bằng').count()) > 0);
+  await ap.click('role=tab[name="Giám sát chứng khoán"]');
+  await ap.waitForSelector('text=Cảnh báo giám sát');
+  check('Admin surveillance tab renders', true);
   await ap.screenshot({ path: `${OUT}/13-admin.png` });
 
   // Mobile
@@ -137,6 +166,13 @@ const check = (name, ok, extra = '') => { results.push(`${ok ? 'PASS' : 'FAIL'} 
   }
   const small = await mp.$$eval('nav[aria-label="Điều hướng nhanh"] a, nav[aria-label="Điều hướng nhanh"] button', (els) => els.filter((e) => e.getBoundingClientRect().height < 44).length);
   check('Mobile bottom nav targets >= 44px', small === 0);
+
+  // Language switch
+  const lp = await (await browser.newContext()).newPage();
+  await lp.goto(WEB);
+  await lp.getByLabel('Ngôn ngữ').selectOption('en');
+  check('English UI available', (await lp.locator('text=Build a business empire').count()) > 0);
+  await lp.screenshot({ path: `${OUT}/25-landing-english.png` });
 
   // Reduced motion
   const rm = await browser.newContext({ reducedMotion: 'reduce' });

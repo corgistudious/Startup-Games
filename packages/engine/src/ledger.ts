@@ -18,11 +18,16 @@ const CHART: Record<string, { kind: Kind; noOverdraft?: boolean }> = {
   equipment: { kind: 'asset' },
   investments: { kind: 'asset' },
   loans_receivable: { kind: 'asset' },
+  contract_deposits: { kind: 'asset' },
+  bank_deposits: { kind: 'asset' },
+  seized_assets: { kind: 'asset' },
   loan_payable: { kind: 'liability' },
   wages_payable: { kind: 'liability' },
   tax_payable: { kind: 'liability' },
   other_payable: { kind: 'liability' },
   currency_issued: { kind: 'liability' },
+  escrow_held: { kind: 'liability' },
+  customer_deposits: { kind: 'liability' },
   share_capital: { kind: 'equity' },
   capital: { kind: 'equity' },
   dividends_paid: { kind: 'equity' },
@@ -60,6 +65,7 @@ export const SYS = {
   households: (code: string) => acct('system', 'households', code),
   treasury: (code: string) => acct('system', 'treasury', code),
   bank: (code: string) => acct('system', 'bank', code),
+  escrow: (code: string) => acct('system', 'escrow', code),
 };
 
 export type PostInput = {

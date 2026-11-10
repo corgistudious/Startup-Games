@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Ctx } from '../app.js';
-import { loanSchema, repaySchema, ipoSchema, orderSchema, dividendSchema } from '@startup/shared';
+import { collateralLoanSchema, repaySchema, ipoSchema, orderSchema, dividendSchema } from '@startup/shared';
 import { takeLoan, repayLoan, creditLimit, loansOf, ownedCompany, ipo, placeOrder, cancelOrder, payDividend, orderBook, many, one, maybe, fail, ECON } from '@startup/engine';
 
 const borrowerQuery = z.object({ companyId: z.string().uuid().optional() });
@@ -25,10 +25,10 @@ export async function financeRoutes(app: FastifyInstance, ctx: Ctx) {
   app.post('/bank/loans', async (req) => {
     const u = ctx.requireUser(req);
     const { companyId } = borrowerQuery.parse(req.query);
-    const input = ctx.parse(loanSchema, req.body);
+    const input = ctx.parse(collateralLoanSchema, req.body);
     const b = await asOwner(u.id, companyId);
     const key = ctx.actionKey(req, `loan:${b.id}`);
-    const id = await ctx.mutate((tx, m) => takeLoan(tx, u.id, b, input.amount, input.termDays, m, key));
+    const id = await ctx.mutate((tx, m) => takeLoan(tx, u.id, b, input.amount, input.termDays, m, key, { equipmentIds: input.equipmentIds }));
     return { id };
   });
 

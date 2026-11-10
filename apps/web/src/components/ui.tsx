@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import clsx from 'clsx';
 import { X, CheckCircle2, AlertTriangle, Info, Inbox } from 'lucide-react';
 import { useToasts } from '@/lib/store';
+import { useTranslation } from 'react-i18next';
 import { vnd } from '@/lib/format';
 
 type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'success' | 'danger';
@@ -110,6 +111,7 @@ export function Field({ label, hint, children }: { label: string; hint?: ReactNo
 
 /** Dialog: bottom sheet on phones (keeps the confirm button above the keyboard), centred card on desktop. */
 export function Modal({ open, onClose, title, children, footer, wide }: { open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
+  const { t } = useTranslation();
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -127,7 +129,7 @@ export function Modal({ open, onClose, title, children, footer, wide }: { open: 
       <div className={clsx('panel rise flex max-h-[92dvh] w-full flex-col rounded-b-none sm:rounded-2xl', wide ? 'sm:max-w-3xl' : 'sm:max-w-lg')}>
         <div className="panel-head">
           <h2 className="text-base font-semibold">{title}</h2>
-          <button className="btn btn-ghost btn-sm !px-2" onClick={onClose} aria-label="Đóng">
+          <button className="btn btn-ghost btn-sm !px-2" onClick={onClose} aria-label={t('Đóng')}>
             <X size={18} />
           </button>
         </div>
@@ -144,6 +146,7 @@ export function ConfirmButton({ label, title, message, onConfirm, needReason, va
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const { t } = useTranslation();
   return (
     <>
       <Button variant={variant === 'danger' ? 'outline' : variant} size={size} icon={icon} onClick={() => setOpen(true)} className={variant === 'danger' ? '!border-red-400/50 !text-red-300' : undefined}>
@@ -156,7 +159,7 @@ export function ConfirmButton({ label, title, message, onConfirm, needReason, va
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)}>
-              Hủy
+              {t('Hủy')}
             </Button>
             <Button
               variant={variant}
@@ -173,7 +176,7 @@ export function ConfirmButton({ label, title, message, onConfirm, needReason, va
                 }
               }}
             >
-              Xác nhận
+              {t('Xác nhận')}
             </Button>
           </>
         }
@@ -181,7 +184,7 @@ export function ConfirmButton({ label, title, message, onConfirm, needReason, va
         <div className="space-y-3 text-sm text-ink-200">
           <div>{message}</div>
           {needReason && (
-            <Field label="Lý do (bắt buộc, ghi vào nhật ký kiểm toán)">{(id) => <textarea id={id} className="field min-h-[80px]" value={reason} onChange={(e) => setReason(e.target.value)} />}</Field>
+            <Field label={t('Lý do (bắt buộc, ghi vào nhật ký kiểm toán)')}>{(id) => <textarea id={id} className="field min-h-[80px]" value={reason} onChange={(e) => setReason(e.target.value)} />}</Field>
           )}
         </div>
       </Modal>
@@ -223,8 +226,9 @@ export function Empty({ title, text, action }: { title: string; text?: string; a
 }
 
 export function Loading({ rows = 3 }: { rows?: number }) {
+  const { t } = useTranslation();
   return (
-    <div className="space-y-3" aria-busy="true" aria-label="Đang tải">
+    <div className="space-y-3" aria-busy="true" aria-label={t('Đang tải')}>
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} className="h-16 animate-pulse rounded-2xl bg-ink-800/70" />
       ))}

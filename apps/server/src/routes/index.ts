@@ -7,6 +7,7 @@ import { marketRoutes } from './market.js';
 import { financeRoutes } from './finance.js';
 import { communityRoutes } from './community.js';
 import { adminRoutes } from './admin.js';
+import { expansionRoutes } from './expansion.js';
 
 export async function registerRoutes(app: FastifyInstance, ctx: Ctx) {
   await authRoutes(app, ctx);
@@ -16,4 +17,5 @@ export async function registerRoutes(app: FastifyInstance, ctx: Ctx) {
   await financeRoutes(app, ctx);
   await communityRoutes(app, ctx);
   await adminRoutes(app, ctx);
+  await expansionRoutes(app, ctx);
 }

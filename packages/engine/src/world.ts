@@ -9,7 +9,10 @@ import { marketTick } from './market';
 import { deliverShipment } from './logistics';
 import { runPayroll } from './hr';
 import { companyDaily, activateLicense, closeMonth, collectTaxes, householdIncome } from './operations';
-import { loanDaily } from './bank';
+import { loanDaily, depositDaily } from './bank';
+import { contractDaily } from './contracts';
+import { expireOffers } from './groups';
+import { autoDelist, runSurveillance } from './exchange';
 import { refillPeople } from './people';
 import { evaluateStage } from './stages';
 import { selectFavorites } from './community';
@@ -40,6 +43,10 @@ export async function scheduleTick(tx: Tx, tick: number): Promise<number> {
     for (const c of companies) await q('company.daily', `daily:${d.day}:${c.id}`, { companyId: c.id, day: d.day });
     const loans = await many<{ id: string }>(tx, `SELECT id FROM loans WHERE status IN ('active','overdue')`);
     for (const l of loans) await q('loan.daily', `loan:${d.day}:${l.id}`, { loanId: l.id, day: d.day });
+    const contracts = await many<{ id: string }>(tx, `SELECT id FROM supply_contracts WHERE status='active'`);
+    for (const k of contracts) await q('contract.daily', `contract:${d.day}:${k.id}`, { contractId: k.id, day: d.day });
+    const deposits = await many<{ id: string }>(tx, `SELECT id FROM deposits WHERE status='active'`);
+    for (const dp of deposits) await q('deposit.daily', `deposit:${d.day}:${dp.id}`, { depositId: dp.id, day: d.day });
     await q('world.daily', `world:daily:${d.day}`, { day: d.day });
     if (d.dayOfMonth === 0 && d.month > 0) {
       const all = await many<{ id: string }>(tx, `SELECT id FROM companies WHERE founded_minute < $1`, [minute]);
@@ -51,7 +58,10 @@ export async function scheduleTick(tx: Tx, tick: number): Promise<number> {
   const due = await many<{ id: string }>(tx, `SELECT id FROM shipments WHERE status='in_transit' AND eta_minute < $1`, [minute + TICK_MINUTES]);
   for (const s of due) await q('shipment.deliver', `ship:${s.id}`, { shipmentId: s.id });
   await q('market.tick', `market:${tick}`, { tick });
-  if (d.minuteOfHour === 0) for (const c of companies.filter((x) => x.is_npc)) await q('npc.brain', `npc:${tick}:${c.id}`, { companyId: c.id });
+  if (d.minuteOfHour === 0) {
+    for (const c of companies.filter((x) => x.is_npc)) await q('npc.brain', `npc:${tick}:${c.id}`, { companyId: c.id });
+    await q('exchange.surveillance', `surveillance:${tick}`);
+  }
   await tx.query('UPDATE world_ticks SET jobs_enqueued=$2 WHERE tick=$1', [tick, n]);
   return n;
 }
@@ -102,6 +112,8 @@ export const handlers: Record<string, JobHandler> = {
     const day = job.payload.day as number;
     await householdIncome(tx, day, job.game_minute);
     await refillPeople(tx, `people:${day}`);
+    await expireOffers(tx, job.game_minute);
+    await autoDelist(tx, job.game_minute);
   },
   'company.close': async (tx, job) => {
     await closeMonth(tx, job.payload.companyId as string, job.payload.month as number);
@@ -111,6 +123,15 @@ export const handlers: Record<string, JobHandler> = {
     const owners = await many<{ id: string }>(tx, `SELECT DISTINCT owner_user_id AS id FROM companies WHERE owner_user_id IS NOT NULL`);
     for (const o of owners) await evaluateStage(tx, o.id, job.game_minute);
     await selectFavorites(tx, month, seeded(`favorites:${month}`));
+  },
+  'contract.daily': async (tx, job) => {
+    await contractDaily(tx, job.payload.contractId as string, job.payload.day as number, job.game_minute);
+  },
+  'deposit.daily': async (tx, job) => {
+    await depositDaily(tx, job.payload.depositId as string, job.payload.day as number, job.game_minute);
+  },
+  'exchange.surveillance': async (tx, job) => {
+    await runSurveillance(tx, job.game_minute);
   },
   'npc.brain': async (tx, job) => {
     await npcBrain(tx, job.payload.companyId as string, job.game_minute);

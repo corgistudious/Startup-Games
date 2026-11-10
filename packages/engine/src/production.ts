@@ -3,7 +3,8 @@ import { maybe, many, one } from './db';
 import { fail } from './errors';
 import { post } from './ledger';
 import { C, type CompanyRow } from './companies';
-import { isOnShift, toGameDate, type ShiftKind } from '@startup/shared';
+import { toGameDate, type ShiftKind } from '@startup/shared';
+import { workState } from './workforce';
 import { laborPerTick } from './people';
 import { notifyCompanyOwner } from './notify';
 
@@ -95,14 +96,22 @@ export async function cancelProduction(tx: Tx, companyId: string, orderId: strin
  */
 export async function workTick(tx: Tx, company: CompanyRow, minute: number) {
   const d = toGameDate(minute);
-  const staff = await many<{ id: string; shift: ShiftKind; department: string; skill: number; morale: number }>(tx, 'SELECT id, shift, department, skill, morale FROM people WHERE company_id=$1', [company.id]);
-  const onShift = staff.filter((s) => isOnShift(s.shift, d.weekday, d.minuteOfDay));
-  if (onShift.length) await tx.query('UPDATE people SET hours_this_day = hours_this_day + 0.5 WHERE id = ANY($1)', [onShift.map((s) => s.id)]);
+  const staff = await many<{ id: string; shift: ShiftKind; department: string; skill: number; morale: number; leave_until_minute: number | null }>(
+    tx,
+    'SELECT id, shift, department, skill, morale, leave_until_minute FROM people WHERE company_id=$1',
+    [company.id],
+  );
+  const states = staff.map((s) => ({ s, w: workState(s, company.overtime_hours ?? 0, d.weekday, d.minuteOfDay, minute) }));
+  const paidRegular = states.filter((x) => x.w.paid).map((x) => x.s.id); // includes paid leave
+  const overtime = states.filter((x) => x.w.overtime && x.w.working).map((x) => x.s.id);
+  if (paidRegular.length) await tx.query('UPDATE people SET hours_this_day = hours_this_day + 0.5 WHERE id = ANY($1)', [paidRegular]);
+  if (overtime.length) await tx.query('UPDATE people SET ot_hours_this_day = ot_hours_this_day + 0.5 WHERE id = ANY($1)', [overtime]);
+  const working = states.filter((x) => x.w.working).map((x) => x.s);
 
-  const producers = onShift.filter((s) => s.department === 'san_xuat');
+  const producers = working.filter((s) => s.department === 'san_xuat');
   let labor = producers.reduce((sum, s) => sum + laborPerTick(s.skill, s.morale), 0);
   // Managers on shift raise production efficiency a little (max +15%).
-  const managers = onShift.filter((s) => s.department === 'dieu_hanh').length;
+  const managers = working.filter((s) => s.department === 'dieu_hanh').length;
   labor *= 1 + Math.min(0.15, managers * 0.05);
   if (labor <= 0) return;
 

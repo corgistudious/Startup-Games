@@ -5,6 +5,9 @@ import { C, type CompanyRow, EXPENSES } from './companies';
 import { releasePerson } from './hr';
 import { ECON } from './config';
 import { DAYS_PER_MONTH, MINUTES_PER_DAY } from '@startup/shared';
+import { BENEFITS } from './workforce';
+import { cancelOrdersWhere, haltSymbol } from './exchange';
+import { cashFlow } from './cashflow';
 import { notify, notifyCompanyOwner } from './notify';
 
 /**
@@ -26,7 +29,8 @@ export async function companyDaily(tx: Tx, companyId: string, day: number, minut
     [companyId],
   );
   const maintenance = eq.reduce((s, e) => s + e.maintenance_day, 0);
-  const rent = c.rent_day;
+  const branchRent = (await one<{ r: number }>(tx, `SELECT COALESCE(SUM(l.rent_day),0)::bigint AS r FROM branches b JOIN locations l ON l.code=b.location_code WHERE b.company_id=$1 AND b.status='active'`, [companyId])).r;
+  const rent = c.rent_day + branchRent;
   const bills = rent + maintenance;
   const otherPayable = -(await balance(tx, C(companyId, 'other_payable')));
   const cash = await balance(tx, C(companyId, 'cash'));
@@ -37,7 +41,7 @@ export async function companyDaily(tx: Tx, companyId: string, day: number, minut
       await post(tx, {
         key: `daily:costs:${companyId}:${day}`,
         kind: 'operating_costs',
-        memo: `Thuê mặt bằng và bảo trì ngày ${day + 1}`,
+        memo: `Thuê mặt bằng${branchRent ? ' (gồm chi nhánh)' : ''} và bảo trì ngày ${day + 1}`,
         minute,
         ref: { type: 'company', id: companyId },
         lines: [
@@ -69,6 +73,33 @@ export async function companyDaily(tx: Tx, companyId: string, day: number, minut
       for (const e of eq) await tx.query('UPDATE equipment SET condition = GREATEST(0, condition - $2) WHERE id=$1', [e.id, e.wear_per_day * 3]);
     }
   }
+
+  // Benefit package: paid daily per employee; improves morale. Unaffordable benefits lower morale.
+  const level = c.benefit_level ?? 0;
+  const headcount = (await one<{ n: number }>(tx, 'SELECT count(*)::int AS n FROM people WHERE company_id=$1', [companyId])).n;
+  if (level > 0 && headcount > 0) {
+    const cost = BENEFITS[level]!.costPerDay * headcount;
+    if ((await balance(tx, C(companyId, 'cash'))) >= cost) {
+      await post(tx, {
+        key: `daily:benefits:${companyId}:${day}`,
+        kind: 'benefits',
+        memo: `Phúc lợi nhân viên ngày ${day + 1}: ${BENEFITS[level]!.name}`,
+        minute,
+        ref: { type: 'company', id: companyId },
+        lines: [
+          { ...C(companyId, 'wages'), amount: cost },
+          { ...C(companyId, 'cash'), amount: -cost },
+          { ...SYS.households('cash'), amount: cost },
+          { ...SYS.households('income'), amount: -cost },
+        ],
+      });
+      await tx.query('UPDATE people SET morale = LEAST(100, morale + $2) WHERE company_id=$1', [companyId, BENEFITS[level]!.morale]);
+    } else {
+      await tx.query('UPDATE people SET morale = GREATEST(0, morale - 2) WHERE company_id=$1', [companyId]);
+    }
+  }
+  // Rest restores morale for staff on paid leave.
+  await tx.query('UPDATE people SET morale = LEAST(100, morale + 3) WHERE company_id=$1 AND leave_until_minute > $2', [companyId, minute]);
 
   // Straight-line-ish depreciation: 0.4% of book value per day.
   let dep = 0;
@@ -143,8 +174,9 @@ export async function declareBankruptcy(tx: Tx, c: CompanyRow, minute: number) {
   for (const p of staff) await releasePerson(tx, p.id);
   await tx.query('UPDATE listings SET active=false WHERE company_id=$1', [c.id]);
   await tx.query(`UPDATE production_orders SET status='cancelled', completed_minute=$2 WHERE company_id=$1 AND status='running'`, [c.id, minute]);
-  await tx.query(`UPDATE orders SET status='cancelled' WHERE owner_type='company' AND owner_id=$1 AND status='open'`, [c.id]);
-  await tx.query(`UPDATE instruments SET status='halted', halt_reason='Doanh nghiệp phá sản' WHERE company_id=$1`, [c.id]);
+  await cancelOrdersWhere(tx, { ownerType: 'company', ownerId: c.id }, minute, 'bankrupt');
+  const ins = await maybe<{ symbol: string }>(tx, `SELECT symbol FROM instruments WHERE company_id=$1 AND status <> 'delisted'`, [c.id]);
+  if (ins) await haltSymbol(tx, ins.symbol, true, 'Doanh nghiệp phá sản', minute);
   if (c.owner_user_id) await notify(tx, c.owner_user_id, 'finance', `${c.name} đã phá sản`, 'Doanh nghiệp không thể thanh toán nghĩa vụ trong 7 ngày liên tiếp. Nhân sự đã được giải phóng và tài sản bị phong tỏa để xử lý nợ.', { companyId: c.id });
 }
 
@@ -185,7 +217,7 @@ export async function closeMonth(tx: Tx, companyId: string, month: number) {
     tx,
     `INSERT INTO monthly_reports (company_id, month, revenue, cogs, wages, marketing, operating, interest, profit_before_tax, tax, net_profit, cash_end, inventory_end, debt_end, detail)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT (company_id, month) DO NOTHING RETURNING id`,
-    [companyId, month, revenue, cogs, wages, marketing, operating, interest, pbt, tax, pbt - tax, cashEnd, inventoryEnd, debtEnd, { activity: a, taxRate: c.tax_rate }],
+    [companyId, month, revenue, cogs, wages, marketing, operating, interest, pbt, tax, pbt - tax, cashEnd, inventoryEnd, debtEnd, { activity: a, taxRate: c.tax_rate, cashFlow: await cashFlow(tx, companyId, from, to) }],
   );
   if (!ins) return null;
   if (tax > 0) {

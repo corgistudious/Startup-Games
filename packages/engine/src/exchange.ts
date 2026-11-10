@@ -6,6 +6,7 @@ import { ECON } from './config';
 import { netAssets, type CompanyRow } from './companies';
 import { notify } from './notify';
 import { audit } from './audit';
+import { reviewShareControl } from './groups';
 
 export type Owner = { type: 'user' | 'company'; id: string };
 type Order = {
@@ -193,7 +194,10 @@ async function match(tx: Tx, ins: Instrument, incoming: Order, minute: number) {
       if (done && o.side === 'buy' && o.locked_cash > 0) await releaseCash(tx, o, minute, 'refund');
     }
   }
-  if (trades > 0) await tx.query('UPDATE instruments SET last_price=$2 WHERE symbol=$1', [ins.symbol, lastPrice]);
+  if (trades > 0) {
+    await tx.query('UPDATE instruments SET last_price=$2 WHERE symbol=$1', [ins.symbol, lastPrice]);
+    await reviewShareControl(tx, ins.symbol, minute);
+  }
   return trades;
 }
 
@@ -289,4 +293,153 @@ export async function orderBook(q: Queryable, symbol: string) {
       [symbol, side],
     );
   return { bids: await levels('buy'), asks: await levels('sell') };
+}
+
+/** Cancel every open order matching a filter, releasing locked cash and shares properly. */
+export async function cancelOrdersWhere(tx: Tx, where: { symbol?: string; ownerType?: 'user' | 'company'; ownerId?: string }, minute: number, reason: string) {
+  const orders = await many<Order>(
+    tx,
+    `SELECT * FROM orders WHERE status='open' AND ($1::text IS NULL OR symbol=$1) AND ($2::text IS NULL OR owner_type=$2) AND ($3::text IS NULL OR owner_id=$3) ORDER BY seq FOR UPDATE`,
+    [where.symbol ?? null, where.ownerType ?? null, where.ownerId ?? null],
+  );
+  for (const o of orders) await cancelOrderInternal(tx, o, minute, reason);
+  return orders.length;
+}
+
+export async function haltSymbol(tx: Tx, symbol: string, halted: boolean, reason: string | null, minute: number) {
+  await tx.query(
+    `UPDATE instruments SET status=$2, halt_reason=$3, halted_minute = CASE WHEN $2='halted' THEN COALESCE(halted_minute, $4) ELSE NULL END WHERE symbol=$1 AND status <> 'delisted'`,
+    [symbol, halted ? 'halted' : 'listed', halted ? reason : null, minute],
+  );
+}
+
+/**
+ * Voluntary delisting: the company buys back every outside share at a price no lower than
+ * the last traded price and the IPO price. Remaining holders cannot be stranded.
+ */
+export async function voluntaryDelist(tx: Tx, actorId: string, c: CompanyRow, price: number, minute: number) {
+  const ins = await maybe<Instrument>(tx, 'SELECT * FROM instruments WHERE company_id=$1 FOR UPDATE', [c.id]);
+  if (!ins || ins.status === 'delisted') return fail('not_listed', 'Doanh nghiệp không niêm yết.');
+  const floor = Math.max(ins.last_price ?? 0, ins.ipo_price);
+  if (price < floor) fail('price_too_low', `Giá mua lại tối thiểu ${floor.toLocaleString('vi-VN')} ₫ (không thấp hơn giá khớp gần nhất và giá IPO).`);
+  await cancelOrdersWhere(tx, { symbol: ins.symbol }, minute, 'delist');
+  const holders = await many<{ holder_type: 'user' | 'company'; holder_id: string; qty: number; cost: number }>(
+    tx,
+    `SELECT holder_type, holder_id, qty, cost FROM holdings WHERE symbol=$1 AND qty > 0 AND NOT (holder_type='company' AND holder_id=$2) AND NOT (holder_type='user' AND holder_id=$3) FOR UPDATE`,
+    [ins.symbol, c.id, c.owner_user_id],
+  );
+  const total = holders.reduce((s, h) => s + h.qty * price, 0);
+  if (total > 0) {
+    const lines: Line[] = [
+      { ...acct('company', c.id, 'cash'), amount: -total },
+      { ...acct('company', c.id, 'share_capital'), amount: total },
+    ];
+    for (const h of holders) {
+      const v = h.qty * price;
+      lines.push({ ...acct(h.holder_type, h.holder_id, 'cash'), amount: v }, { ...acct(h.holder_type, h.holder_id, 'investments'), amount: -h.cost }, { ...acct(h.holder_type, h.holder_id, 'trading_gain'), amount: -(v - h.cost) });
+    }
+    await post(tx, { key: `delist:buyback:${ins.symbol}`, kind: 'delisting_buyback', memo: `Mua lại cổ phiếu ${ins.symbol} để hủy niêm yết`, minute, actorId, ref: { type: 'instrument', id: ins.symbol }, lines });
+    const moved = holders.reduce((s, h) => s + h.qty, 0);
+    for (const h of holders) await tx.query('UPDATE holdings SET qty=0, locked=0, cost=0 WHERE symbol=$1 AND holder_type=$2 AND holder_id=$3', [ins.symbol, h.holder_type, h.holder_id]);
+    await tx.query(`INSERT INTO holdings (symbol, holder_type, holder_id, qty) VALUES ($1,'company',$2,$3) ON CONFLICT (symbol, holder_type, holder_id) DO UPDATE SET qty = holdings.qty + EXCLUDED.qty`, [ins.symbol, c.id, moved]);
+    for (const h of holders) if (h.holder_type === 'user') await notify(tx, h.holder_id, 'exchange', `${ins.symbol} hủy niêm yết`, `Cổ phiếu của bạn được mua lại với giá ${price.toLocaleString('vi-VN')} ₫ (${(h.qty * price).toLocaleString('vi-VN')} ₫).`, { symbol: ins.symbol });
+  }
+  await markDelisted(tx, ins.symbol, `Tự nguyện hủy niêm yết, mua lại giá ${price.toLocaleString('vi-VN')} ₫`, minute);
+  await audit(tx, actorId, 'exchange.delist_voluntary', 'instrument', ins.symbol, { price, total });
+  return total;
+}
+
+/** Forced delisting (admin decision or prolonged halt after bankruptcy). Holders keep their shares. */
+export async function forceDelist(tx: Tx, actorId: string | null, symbol: string, reason: string, minute: number) {
+  const ins = await maybe<Instrument>(tx, 'SELECT * FROM instruments WHERE symbol=$1 FOR UPDATE', [symbol]);
+  if (!ins || ins.status === 'delisted') return fail('not_listed', 'Mã không còn niêm yết.');
+  await cancelOrdersWhere(tx, { symbol }, minute, 'delist');
+  await markDelisted(tx, symbol, reason, minute);
+  await audit(tx, actorId, 'exchange.delist_forced', 'instrument', symbol, { reason });
+  const holders = await many<{ holder_id: string }>(tx, `SELECT holder_id FROM holdings WHERE symbol=$1 AND holder_type='user' AND qty > 0`, [symbol]);
+  for (const h of holders) await notify(tx, h.holder_id, 'exchange', `${symbol} bị hủy niêm yết`, `${reason}. Bạn vẫn sở hữu cổ phần nhưng không thể giao dịch trên sàn.`, { symbol });
+}
+
+async function markDelisted(tx: Tx, symbol: string, reason: string, minute: number) {
+  await tx.query(`UPDATE instruments SET status='delisted', delisted_at=now(), delist_reason=$2, halt_reason=NULL WHERE symbol=$1`, [symbol, reason]);
+  await tx.query('INSERT INTO disclosures (symbol, title, body, game_minute) VALUES ($1,$2,$3,$4)', [symbol, 'Hủy niêm yết', reason, minute]);
+}
+
+/** Halted for 7+ game days because the company went bankrupt → delisted. */
+export async function autoDelist(tx: Tx, minute: number) {
+  const due = await many<{ symbol: string }>(
+    tx,
+    `SELECT i.symbol FROM instruments i JOIN companies c ON c.id=i.company_id WHERE i.status='halted' AND c.status='bankrupt' AND i.halted_minute IS NOT NULL AND i.halted_minute <= $1`,
+    [minute - 7 * 1440],
+  );
+  for (const d of due) await forceDelist(tx, null, d.symbol, 'Doanh nghiệp phá sản và tạm ngừng giao dịch quá 7 ngày', minute);
+  return due.length;
+}
+
+// ---------------- Market surveillance ----------------
+
+export const SURVEILLANCE = { spikePct: 0.2, haltPct: 0.3, spikeMaxAccounts: 3, washRoundTrips: 3, concentrationShare: 0.8, concentrationMinTrades: 5 };
+
+/**
+ * Hourly checks on the last game hour/day of trades:
+ *  - price_spike: price moved >20% within an hour among ≤3 accounts (auto-halt above 30%);
+ *  - wash_trading: two accounts trading back and forth ≥3 times in a day;
+ *  - concentration: one account on one side of ≥80% of the day's volume (≥5 trades).
+ */
+export async function runSurveillance(tx: Tx, minute: number) {
+  const day = Math.floor(minute / 1440);
+  const symbols = await many<{ symbol: string }>(tx, `SELECT DISTINCT symbol FROM trades WHERE game_minute >= $1`, [minute - 1440]);
+  let alerts = 0;
+  for (const { symbol } of symbols) {
+    const trades = await many<{ price: number; qty: number; game_minute: number; buyer: string; seller: string }>(
+      tx,
+      `SELECT t.price, t.qty, t.game_minute, b.owner_type || ':' || b.owner_id AS buyer, s.owner_type || ':' || s.owner_id AS seller
+         FROM trades t JOIN orders b ON b.id=t.buy_order_id JOIN orders s ON s.id=t.sell_order_id
+        WHERE t.symbol=$1 AND t.game_minute >= $2 ORDER BY t.id`,
+      [symbol, minute - 1440],
+    );
+    const raise = async (kind: string, severity: 'medium' | 'high', key: string, detail: Record<string, unknown>, halt = false) => {
+      const r = await tx.query(`INSERT INTO surveillance_alerts (symbol, kind, severity, dedupe_key, detail, auto_halted, game_minute) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (dedupe_key) DO NOTHING`, [symbol, kind, severity, key, detail, halt, minute]);
+      if (r.rowCount) {
+        alerts++;
+        if (halt) await haltSymbol(tx, symbol, true, 'Tạm ngừng tự động: biến động giá bất thường, chờ Ban Quản Trị xem xét', minute);
+      }
+    };
+    const hour = trades.filter((t) => t.game_minute >= minute - 60);
+    if (hour.length >= 2) {
+      const first = hour[0]!.price;
+      const last = hour[hour.length - 1]!.price;
+      const move = Math.abs(last - first) / first;
+      const accounts = new Set(hour.flatMap((t) => [t.buyer, t.seller]));
+      if (move > SURVEILLANCE.spikePct && accounts.size <= SURVEILLANCE.spikeMaxAccounts) {
+        await raise('price_spike', 'high', `spike:${symbol}:${Math.floor(minute / 60)}`, { from: first, to: last, move, accounts: [...accounts] }, move > SURVEILLANCE.haltPct);
+      }
+    }
+    const pairs = new Map<string, { ab: number; ba: number }>();
+    for (const t of trades) {
+      const [a, b] = [t.buyer, t.seller].sort();
+      const p = pairs.get(`${a}|${b}`) ?? { ab: 0, ba: 0 };
+      if (t.buyer === a) p.ab++;
+      else p.ba++;
+      pairs.set(`${a}|${b}`, p);
+    }
+    for (const [pair, p] of pairs) {
+      if (Math.min(p.ab, p.ba) >= SURVEILLANCE.washRoundTrips) await raise('wash_trading', 'high', `wash:${symbol}:${pair}:${day}`, { pair: pair.split('|'), roundTrips: Math.min(p.ab, p.ba) });
+    }
+    if (trades.length >= SURVEILLANCE.concentrationMinTrades) {
+      const volume = trades.reduce((s, t) => s + t.qty, 0);
+      const by = new Map<string, number>();
+      for (const t of trades) for (const who of [t.buyer, t.seller]) by.set(who, (by.get(who) ?? 0) + t.qty);
+      for (const [who, q] of by) if (q / volume >= SURVEILLANCE.concentrationShare) await raise('concentration', 'medium', `conc:${symbol}:${who}:${day}`, { account: who, share: q / volume, volume });
+    }
+  }
+  return alerts;
+}
+
+export async function resolveAlert(tx: Tx, adminId: string, alertId: number, resolution: string, resume: boolean, minute: number) {
+  const a = await maybe<{ symbol: string; status: string; auto_halted: boolean }>(tx, 'SELECT symbol, status, auto_halted FROM surveillance_alerts WHERE id=$1 FOR UPDATE', [alertId]);
+  if (!a || a.status !== 'open') return fail('not_open', 'Cảnh báo đã được xử lý.');
+  await tx.query(`UPDATE surveillance_alerts SET status='resolved', resolution=$2, resolved_by=$3 WHERE id=$1`, [alertId, resolution, adminId]);
+  if (resume && a.auto_halted) await haltSymbol(tx, a.symbol, false, null, minute);
+  await audit(tx, adminId, 'exchange.alert_resolve', 'instrument', a.symbol, { alertId, resolution, resume });
 }

@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { useAction } from '@/lib/hooks';
 import { PageHeader, Panel, Money, Button, Field, Badge, Loading, Empty, Stat, TableWrap } from '@/components/ui';
 import { vnd, gameTime, ago } from '@/lib/format';
+import { Deposits } from '@/components/Deposits';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export default function Bank() {
@@ -20,7 +21,7 @@ export default function Bank() {
   const b = bank.data;
   return (
     <div className="space-y-5">
-      <PageHeader eyebrow="Tài chính" title="Ngân hàng" subtitle="Ngân hàng cho vay từ nguồn vốn hữu hạn của chính nó. Lãi tính mỗi ngày game, trả gốc và lãi mỗi 7 ngày. Trễ hạn bị phạt lãi; trễ 3 kỳ là nợ xấu." />
+      <PageHeader eyebrow="Tài chính" title="Ngân hàng" subtitle="Ngân hàng cho vay từ vốn điều lệ và tiền gửi của khách hàng. Lãi tính mỗi ngày game, trả gốc và lãi mỗi 7 ngày. Trễ hạn bị phạt lãi; trễ 3 kỳ là nợ xấu." />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Tiền mặt cá nhân" value={<Money value={ov.data?.cash} compact />} icon={<Landmark size={16} />} />
         <Stat label="Hạn mức vay cá nhân" value={<Money value={b.credit.limit} compact />} hint={b.credit.reason ?? 'Theo giai đoạn phát triển'} tone={b.credit.reason ? 'warn' : undefined} />
@@ -84,6 +85,7 @@ export default function Bank() {
           </div>
         </Panel>
       </div>
+      <Deposits />
       <Panel title="Lịch sử giao dịch tài khoản">
         <TableWrap>
           <table className="table min-w-[520px]">

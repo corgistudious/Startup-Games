@@ -131,3 +131,46 @@ describe('admin permissions', () => {
     expect((await call('GET', '/reviewer/me', player)).body.reviewer.reputation).toBe(15);
   });
 });
+
+describe('expansion endpoints', () => {
+  it('/metrics requires the token and exposes game gauges', async () => {
+    process.env.METRICS_TOKEN = 'metrics-test-token';
+    expect((await app.inject({ method: 'GET', url: '/metrics' })).statusCode).toBe(401);
+    const r = await app.inject({ method: 'GET', url: '/metrics', headers: { authorization: 'Bearer metrics-test-token' } });
+    expect(r.statusCode).toBe(200);
+    expect(r.body).toMatch(/startup_world_tick_lag \d+/);
+    expect(r.body).toMatch(/startup_ledger_balanced 1/);
+    expect(r.body).toMatch(/startup_http_requests_total\{method="GET",route="\/me"/);
+    delete process.env.METRICS_TOKEN;
+  });
+
+  it('HR policy, bonus validation and personal deposits over HTTP', async () => {
+    expect((await call('PUT', `/companies/${companyId}/hr-policy`, player, { benefitLevel: 2, overtimeHours: 1 })).status).toBe(200);
+    expect((await call('PUT', `/companies/${companyId}/hr-policy`, player, { overtimeHours: 5 })).status).toBe(400);
+    expect((await call('POST', `/companies/${companyId}/bonus`, player, { personIds: [], amountEach: 1000 })).status).toBe(400);
+    const d = await call('POST', '/bank/deposits', player, { amount: 5_000_000, termDays: 0 });
+    expect(d.status).toBe(200);
+    const list = (await call('GET', '/bank/deposits', player)).body;
+    expect(list.deposits).toHaveLength(1);
+    const w = await call('POST', `/bank/deposits/${d.body.id}/withdraw`, player, {});
+    expect(w.body).toMatchObject({ early: false });
+  });
+
+  it('contracts, group and cash flow are visible only to the owner', async () => {
+    expect((await call('GET', `/companies/${companyId}/contracts`, player)).status).toBe(200);
+    expect((await call('GET', `/companies/${companyId}/group`, player)).body).toHaveProperty('consolidatedEquity');
+    const detail = (await call('GET', `/companies/${companyId}`, player)).body;
+    expect(detail.cashFlow.closing).toBe(detail.balanceSheet.assets.cash + detail.balanceSheet.assets.cashLocked);
+    const stranger = (await call('POST', '/auth/register', undefined, { username: 'curious_guy', password: 'Pho-bo-ngon-88', displayName: 'Curious' })).body.token;
+    expect((await call('GET', `/companies/${companyId}/contracts`, stranger)).status).toBe(403);
+    expect((await call('GET', `/companies/${companyId}/group`, stranger)).status).toBe(403);
+  });
+
+  it('surveillance and dispute admin endpoints are admin-only', async () => {
+    for (const url of ['/admin/surveillance', '/admin/disputes']) {
+      expect((await call('GET', url, player)).status).toBe(403);
+      expect((await call('GET', url, admin)).status).toBe(200);
+    }
+  });
+});
+

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, MapPin, Users, Clock3, Percent } from 'lucide-react';
@@ -12,6 +13,7 @@ import { STATUS_LABEL, vnd, pct } from '@/lib/format';
 type Ov = { cash: number; companies: { id: string; name: string; status: string; industry_name: string; cash: number; employees: number; revenue_7d: number; reputation: number; logo_hue: number }[] };
 
 export default function Companies() {
+  const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
   const [open, setOpen] = useState(params.get('new') === '1');
   const q = useQuery({ queryKey: ['overview'], queryFn: () => api<Ov>('/me/overview') });
@@ -22,11 +24,11 @@ export default function Companies() {
     <div>
       <PageHeader
         eyebrow="Kinh doanh"
-        title="Doanh nghiệp"
-        subtitle="Mỗi doanh nghiệp có tài khoản, tài sản, công nợ và nhân sự riêng. Giai đoạn phát triển quyết định số doanh nghiệp bạn được sở hữu."
+        title={t('Doanh nghiệp')}
+        subtitle={t('Mỗi doanh nghiệp có tài khoản, tài sản, công nợ và nhân sự riêng. Giai đoạn phát triển quyết định số doanh nghiệp bạn được sở hữu.')}
         actions={
           <Button shimmer={!q.data?.companies.length} icon={<Plus size={17} />} onClick={() => setParams({ new: '1' })}>
-            Thành lập doanh nghiệp
+            {t('Thành lập doanh nghiệp')}
           </Button>
         }
       />
@@ -49,15 +51,15 @@ export default function Companies() {
               </div>
               <div className="mt-4 grid grid-cols-3 gap-2 text-sm">
                 <div>
-                  <div className="text-xs text-ink-400">Tiền mặt</div>
+                  <div className="text-xs text-ink-400">{t('Tiền mặt')}</div>
                   <Money value={c.cash} compact className="text-white" />
                 </div>
                 <div>
-                  <div className="text-xs text-ink-400">Doanh thu 7 ngày</div>
+                  <div className="text-xs text-ink-400">{t('Doanh thu 7 ngày')}</div>
                   <Money value={c.revenue_7d} compact className="text-white" />
                 </div>
                 <div>
-                  <div className="text-xs text-ink-400">Nhân sự</div>
+                  <div className="text-xs text-ink-400">{t('Nhân sự')}</div>
                   <span className="num text-white">{c.employees}</span>
                 </div>
               </div>

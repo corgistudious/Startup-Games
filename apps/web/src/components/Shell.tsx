@@ -24,6 +24,8 @@ import { WEEKDAY_NAMES, stageName } from '@startup/shared';
 import { useGameClock, useMe, useRealtime } from '@/lib/hooks';
 import { useSession, useUi } from '@/lib/store';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
+import { LANGUAGES } from '@/i18n';
 import { api } from '@/lib/api';
 import { Money } from './ui';
 
@@ -69,6 +71,7 @@ const MOBILE = [
 ];
 
 function ClockPill() {
+  const { t } = useTranslation();
   const d = useGameClock();
   if (!d) return null;
   const working = d.weekday < 5 && ((d.hour >= 8 && d.hour < 12) || (d.hour >= 13 && d.hour < 17));
@@ -86,18 +89,19 @@ function ClockPill() {
       </div>
       <span className={clsx('chip hidden md:inline-flex', working ? 'bg-emerald-400/15 text-emerald-200' : lunch ? 'bg-amber-400/15 text-amber-200' : 'bg-ink-600/60 text-ink-300')}>
         <Clock3 size={11} />
-        {working ? 'Giờ làm việc' : lunch ? 'Nghỉ trưa' : d.weekday >= 5 ? 'Cuối tuần' : 'Ngoài giờ'}
+        {t(working ? 'Giờ làm việc' : lunch ? 'Nghỉ trưa' : d.weekday >= 5 ? 'Cuối tuần' : 'Ngoài giờ')}
       </span>
     </div>
   );
 }
 
 function SideNav({ admin, onNavigate }: { admin: boolean; onNavigate?: () => void }) {
+  const { t } = useTranslation();
   return (
     <nav className="flex flex-col gap-5" aria-label="Điều hướng chính">
       {[...NAV, ...(admin ? [{ group: 'Quản trị', items: [{ to: '/admin', label: 'Admin Dashboard', icon: ShieldCheck }] }] : [])].map((g) => (
         <div key={g.group}>
-          <div className="mb-1.5 px-3 text-[10.5px] font-semibold uppercase tracking-[0.16em] text-ink-500">{g.group}</div>
+          <div className="mb-1.5 px-3 text-[10.5px] font-semibold uppercase tracking-[0.16em] text-ink-500">{t(g.group)}</div>
           <div className="flex flex-col gap-0.5">
             {g.items.map((i) => (
               <NavLink
@@ -110,7 +114,7 @@ function SideNav({ admin, onNavigate }: { admin: boolean; onNavigate?: () => voi
                 }
               >
                 <i.icon size={18} />
-                {i.label}
+                {t(i.label)}
               </NavLink>
             ))}
           </div>
@@ -122,6 +126,7 @@ function SideNav({ admin, onNavigate }: { admin: boolean; onNavigate?: () => voi
 
 export function Shell() {
   useRealtime();
+  const { t, i18n } = useTranslation();
   const { data: me } = useMe();
   const logout = useSession((s) => s.logout);
   const { drawer, setDrawer } = useUi();
@@ -143,7 +148,7 @@ export function Shell() {
           <SideNav admin={me?.role === 'admin'} />
         </div>
         <button className="btn btn-ghost mt-3 justify-start" onClick={doLogout}>
-          <LogOut size={17} /> Đăng xuất
+          <LogOut size={17} /> {t('Đăng xuất')}
         </button>
       </aside>
 
@@ -153,13 +158,13 @@ export function Shell() {
           <div className="panel absolute inset-y-0 left-0 w-[86%] max-w-[320px] overflow-y-auto rounded-none rounded-r-2xl px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]" onClick={(e) => e.stopPropagation()}>
             <div className="mb-6 flex items-center justify-between">
               <Brand />
-              <button className="btn btn-ghost btn-sm" onClick={() => setDrawer(false)} aria-label="Đóng menu">
+              <button className="btn btn-ghost btn-sm" onClick={() => setDrawer(false)} aria-label={t('Đóng menu')}>
                 <X size={18} />
               </button>
             </div>
             <SideNav admin={me?.role === 'admin'} onNavigate={() => setDrawer(false)} />
             <button className="btn btn-ghost mt-6 w-full justify-start" onClick={doLogout}>
-              <LogOut size={17} /> Đăng xuất
+              <LogOut size={17} /> {t('Đăng xuất')}
             </button>
           </div>
         </div>
@@ -168,15 +173,27 @@ export function Shell() {
       {/* Top bar */}
       <header className="sticky top-0 z-20 border-b bg-ink-900/80 backdrop-blur-md" style={{ borderColor: 'var(--line)', paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="mx-auto flex h-14 max-w-[1400px] items-center gap-3 px-4 sm:h-16 sm:px-6">
-          <button className="btn btn-ghost btn-sm !px-2 lg:hidden" onClick={() => setDrawer(true)} aria-label="Mở menu">
+          <button className="btn btn-ghost btn-sm !px-2 lg:hidden" onClick={() => setDrawer(true)} aria-label={t('Mở menu')}>
             <Menu size={20} />
           </button>
           <ClockPill />
           <div className="ml-auto flex items-center gap-2 sm:gap-4">
             <div className="hidden text-right leading-tight sm:block">
-              <div className="text-[11px] text-ink-400">Tiền mặt cá nhân</div>
+              <div className="text-[11px] text-ink-400">{t('Tiền mặt cá nhân')}</div>
               <Money value={ov?.cash} compact className="text-sm font-semibold text-white" />
             </div>
+            <select
+              aria-label={t('Ngôn ngữ')}
+              className="field hidden !w-auto !py-1.5 text-xs sm:block"
+              value={i18n.language}
+              onChange={(e) => void i18n.changeLanguage(e.target.value)}
+            >
+              {LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
             <button className="btn btn-ghost btn-sm relative !px-2.5" onClick={() => nav('/inbox')} aria-label={`Hộp thư, ${me?.unread ?? 0} chưa đọc`}>
               <Bell size={19} />
               {!!me?.unread && <span className="num absolute -right-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-sky-400 px-1 text-[10px] font-bold text-ink-950">{me.unread > 99 ? '99+' : me.unread}</span>}
@@ -187,7 +204,7 @@ export function Shell() {
               </div>
               <div className="hidden text-left leading-tight md:block">
                 <div className="max-w-[140px] truncate text-sm font-medium text-white">{me?.display_name}</div>
-                <div className="text-[11px] text-sky-300">{stageName(me?.stage ?? 1)}</div>
+                <div className="text-[11px] text-sky-300">{t(stageName(me?.stage ?? 1))}</div>
               </div>
             </button>
           </div>
@@ -204,12 +221,12 @@ export function Shell() {
           {MOBILE.map((i) => (
             <NavLink key={i.to} to={i.to} end={i.end} className={({ isActive }) => clsx('flex min-h-[58px] flex-col items-center justify-center gap-1 text-[10.5px]', isActive ? 'text-sky-300' : 'text-ink-400')}>
               <i.icon size={20} />
-              {i.label}
+              {t(i.label)}
             </NavLink>
           ))}
           <button className="flex min-h-[58px] flex-col items-center justify-center gap-1 text-[10.5px] text-ink-400" onClick={() => setDrawer(true)}>
             <Menu size={20} />
-            Thêm
+            {t('Thêm')}
           </button>
         </div>
       </nav>
@@ -218,12 +235,13 @@ export function Shell() {
 }
 
 export function Brand() {
+  const { t } = useTranslation();
   return (
     <div className="flex items-center gap-3 px-2">
       <img src="/favicon.svg" alt="" className="h-9 w-9" />
       <div className="leading-tight">
         <div className="font-display text-[17px] font-semibold tracking-wide text-white">STARTUP</div>
-        <div className="text-[11px] text-sky-300/90">Khởi Nghiệp Đâu Dễ</div>
+        <div className="text-[11px] text-sky-300/90">{t('Khởi Nghiệp Đâu Dễ')}</div>
       </div>
     </div>
   );

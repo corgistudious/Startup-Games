@@ -8,6 +8,7 @@ import { ZodError, type ZodTypeAny, type infer as ZInfer } from 'zod';
 import { authenticate, GameError, mapDbError, type AuthUser, type Db, type Tx, withTx, nowMinute } from '@startup/engine';
 import { registerRoutes } from './routes/index.js';
 import { attachRealtime } from './realtime.js';
+import { attachMetrics } from './metrics.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -85,6 +86,7 @@ export async function buildApp(db: Db, opts: { logger?: boolean; corsOrigins?: s
     return { ok: true, time: new Date().toISOString() };
   });
 
+  attachMetrics(app, db);
   await registerRoutes(app, ctx);
   attachRealtime(app, db);
   return app;

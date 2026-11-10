@@ -1,7 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { LayoutGrid, Users, Factory, Truck, Megaphone, Landmark, Plus, Wrench, PackageCheck, Clock3, AlertTriangle, TrendingUp, Star, Sparkles } from 'lucide-react';
+import { LayoutGrid, Users, Factory, Truck, Megaphone, Landmark, Plus, Wrench, PackageCheck, Clock3, AlertTriangle, TrendingUp, Star, Sparkles, FileSignature, Network, Palmtree } from 'lucide-react';
+import { Contracts } from './company/Contracts';
+import { Group } from './company/Group';
+import { HrPolicy } from './company/HrPolicy';
+import { CashFlowStatement } from './company/CashFlow';
+import { Deposits } from '@/components/Deposits';
 import { DEPARTMENTS, SHIFTS, CHANNELS } from '@startup/shared';
 import { api } from '@/lib/api';
 import { useAction } from '@/lib/hooks';
@@ -12,7 +17,7 @@ import { vnd, num, gameTime, dayLabel, monthLabel, STATUS_LABEL, pct } from '@/l
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Detail = Record<string, any>;
-type Tab = 'overview' | 'staff' | 'production' | 'supply' | 'sales' | 'finance';
+type Tab = 'overview' | 'staff' | 'production' | 'supply' | 'contracts' | 'sales' | 'finance' | 'group';
 
 export default function CompanyDetail() {
   const { id = '' } = useParams();
@@ -28,7 +33,9 @@ export default function CompanyDetail() {
     { id: 'production', label: 'Sản xuất & Kho', icon: <Factory size={16} /> },
     { id: 'supply', label: 'Mua hàng & Vận chuyển', icon: <Truck size={16} /> },
     { id: 'sales', label: 'Bán hàng & Marketing', icon: <Megaphone size={16} /> },
+    { id: 'contracts', label: 'Hợp đồng', icon: <FileSignature size={16} /> },
     { id: 'finance', label: 'Tài chính & Báo cáo', icon: <Landmark size={16} /> },
+    { id: 'group', label: 'Tập đoàn & M&A', icon: <Network size={16} /> },
   ];
   return (
     <div className="space-y-5">
@@ -68,6 +75,8 @@ export default function CompanyDetail() {
       {tab === 'supply' && <Supply d={d} />}
       {tab === 'sales' && <Sales d={d} />}
       {tab === 'finance' && <Finance d={d} />}
+      {tab === 'contracts' && <Contracts d={d} />}
+      {tab === 'group' && <Group d={d} />}
     </div>
   );
 }
@@ -141,6 +150,8 @@ function Staff({ d }: { d: Detail }) {
   const [edit, setEdit] = useState<any>(null);
   const payroll = d.staff.reduce((s: number, p: any) => s + Number(p.wage), 0);
   const fire = useAction<{ personId: string }>((b) => `/companies/${c.id}/staff/${b.personId}`, { method: 'DELETE', invalidate: [['company', c.id]], success: 'Đã chấm dứt hợp đồng' });
+  const leave = useAction<{ personId: string; days: number }>((b) => `/companies/${c.id}/staff/${b.personId}/leave`, { invalidate: [['company', c.id]], success: 'Đã duyệt nghỉ phép' });
+  const [leaveFor, setLeaveFor] = useState<{ id: string; name: string; days: number } | null>(null);
   const byDept = useMemo(() => Object.entries(DEPARTMENTS).map(([k, v]) => ({ k, v, n: d.staff.filter((p: any) => p.department === k).length })), [d.staff]);
   return (
     <div className="space-y-5">
@@ -150,6 +161,7 @@ function Staff({ d }: { d: Detail }) {
         <Stat label="Kỹ năng trung bình" value={d.staff.length ? Math.round(d.staff.reduce((s: number, p: any) => s + p.skill, 0) / d.staff.length) : '—'} />
         <Stat label="Lương còn nợ" value={<Money value={d.balanceSheet.liabilities.wages} compact />} tone={d.balanceSheet.liabilities.wages ? 'loss' : undefined} hint={d.balanceSheet.liabilities.wages ? 'Nợ lương 3 ngày nhân viên sẽ nghỉ' : 'Không nợ lương'} />
       </div>
+      <HrPolicy d={d} />
       <Panel
         title="Đội ngũ"
         action={
@@ -186,7 +198,11 @@ function Staff({ d }: { d: Detail }) {
                   <tr key={p.id}>
                     <td>
                       <div className="font-medium text-white">{p.full_name}</div>
-                      <div className="text-xs text-ink-400">{p.title ?? `${p.age} tuổi`}{p.unpaid_days ? ` · nợ lương ${p.unpaid_days} ngày` : ''}</div>
+                      <div className="text-xs text-ink-400">
+                        {p.title ?? `${p.age} tuổi`}
+                        {p.unpaid_days ? ` · nợ lương ${p.unpaid_days} ngày` : ''}
+                        {p.leave_until_minute && p.leave_until_minute > d.minute ? ` · nghỉ phép đến ${gameTime(p.leave_until_minute)}` : ''}
+                      </div>
                     </td>
                     <td>{DEPARTMENTS[p.department as keyof typeof DEPARTMENTS]}</td>
                     <td className="text-xs text-ink-300">{SHIFTS[p.shift as keyof typeof SHIFTS]}</td>
@@ -202,6 +218,9 @@ function Staff({ d }: { d: Detail }) {
                       <Progress value={p.morale} tone={p.morale < 35 ? 'loss' : p.morale < 60 ? 'warn' : 'gain'} />
                     </td>
                     <td className="whitespace-nowrap text-right">
+                      <Button size="sm" variant="ghost" icon={<Palmtree size={14} />} onClick={() => setLeaveFor({ id: p.id, name: p.full_name, days: 1 })}>
+                        Nghỉ phép
+                      </Button>
                       <Button size="sm" variant="ghost" onClick={() => setEdit(p)}>
                         Điều chỉnh
                       </Button>
@@ -215,6 +234,21 @@ function Staff({ d }: { d: Detail }) {
         )}
       </Panel>
       <HireModal open={hireOpen} onClose={() => setHireOpen(false)} companyId={c.id} />
+      <Modal
+        open={!!leaveFor}
+        onClose={() => setLeaveFor(null)}
+        title={`Nghỉ phép có lương: ${leaveFor?.name ?? ''}`}
+        footer={
+          <Button loading={leave.isPending} onClick={() => leaveFor && leave.mutate({ personId: leaveFor.id, days: leaveFor.days }, { onSuccess: () => setLeaveFor(null) })}>
+            Duyệt nghỉ phép
+          </Button>
+        }
+      >
+        <Field label="Số ngày (tối đa 12 ngày/năm game)">
+          {(id) => <input id={id} type="number" inputMode="numeric" className="field num" min={1} max={12} value={leaveFor?.days ?? 1} onChange={(e) => leaveFor && setLeaveFor({ ...leaveFor, days: Math.max(1, Number(e.target.value)) })} />}
+        </Field>
+        <p className="mt-2 text-xs text-ink-400">Bắt đầu ngay. Trong thời gian nghỉ, nhân viên không sản xuất hay bán hàng nhưng vẫn được trả lương ca thường và hồi 3 điểm tinh thần mỗi ngày.</p>
+      </Modal>
       {edit && <EditStaff p={edit} companyId={c.id} onClose={() => setEdit(null)} />}
     </div>
   );
@@ -781,7 +815,11 @@ function Sales({ d }: { d: Detail }) {
 function Finance({ d }: { d: Detail }) {
   const c = d.company;
   const bs = d.balanceSheet;
-  const [loan, setLoan] = useState({ amount: 100_000_000, termDays: 28 });
+  const [loan, setLoan] = useState<{ amount: number; termDays: number; equipmentIds: string[] }>({ amount: 100_000_000, termDays: 28, equipmentIds: [] });
+  const freeEq = d.equipment.filter((e: any) => !e.pledged_loan_id);
+  const collateral = Math.floor(freeEq.filter((e: any) => loan.equipmentIds.includes(e.id)).reduce((s: number, e: any) => s + Number(e.book_value), 0) * 0.7);
+  const [delistPrice, setDelistPrice] = useState(0);
+  const delist = useAction<object, { total: number }>(`/companies/${c.id}/delist`, { invalidate: [['company', c.id]], success: (r) => `Đã hủy niêm yết, chi ${vnd(r.total)} mua lại cổ phiếu` });
   const take = useAction(`/bank/loans?companyId=${c.id}`, { invalidate: [['company', c.id]], success: 'Ngân hàng đã giải ngân' });
   const repay = useAction<{ id: string; amount: number }>((b) => `/bank/loans/${b.id}/repay`, { invalidate: [['company', c.id]], success: 'Đã trả nợ' });
   const [ipo, setIpo] = useState({ symbol: '', totalShares: 1_000_000, offerShares: 200_000, offerPrice: 10_000 });
@@ -882,7 +920,21 @@ function Finance({ d }: { d: Detail }) {
               )}
             </Field>
           </div>
-          <Button className="mt-3 w-full" variant="secondary" disabled={loan.amount > d.credit.limit} loading={take.isPending} onClick={() => take.mutate(loan)}>
+          {freeEq.length > 0 && (
+            <div className="mt-3">
+              <div className="label">Thế chấp thiết bị (tăng hạn mức 70% giá trị sổ sách; giảm lãi nếu tài sản bảo đảm từ 50% khoản vay)</div>
+              <div className="flex flex-wrap gap-2">
+                {freeEq.map((e: any) => (
+                  <label key={e.id} className="flex min-h-[40px] items-center gap-2 rounded-lg border px-3 text-xs" style={{ borderColor: 'var(--line)' }}>
+                    <input type="checkbox" className="accent-sky-400" checked={loan.equipmentIds.includes(e.id)} onChange={(ev) => setLoan({ ...loan, equipmentIds: ev.target.checked ? [...loan.equipmentIds, e.id] : loan.equipmentIds.filter((x) => x !== e.id) })} />
+                    {e.name} · {vnd(e.book_value, true)}
+                  </label>
+                ))}
+              </div>
+              {collateral > 0 && <p className="mt-1 text-xs text-sky-200">Hạn mức cộng thêm {vnd(collateral, true)}. Vỡ nợ: ngân hàng thu thiết bị, giảm nợ 60% giá trị sổ sách.</p>}
+            </div>
+          )}
+          <Button className="mt-3 w-full" variant="secondary" disabled={loan.amount > d.credit.limit + collateral} loading={take.isPending} onClick={() => take.mutate(loan)}>
             Đề nghị giải ngân
           </Button>
           {d.credit.reason && <p className="mt-2 text-xs text-warn">{d.credit.reason}</p>}
@@ -921,6 +973,14 @@ function Finance({ d }: { d: Detail }) {
                 <Field label="Cổ tức / cổ phiếu">{(id) => <input id={id} type="number" inputMode="numeric" min={1} className="field num w-32" value={div} onChange={(e) => setDiv(Number(e.target.value))} />}</Field>
                 <ConfirmButton variant="primary" label="Chi trả cổ tức" title="Chi trả cổ tức tiền mặt" message={`Trả ${vnd(div)} cho mỗi cổ phiếu đang lưu hành (không gồm cổ phiếu chưa bán của đợt IPO).`} onConfirm={() => payDiv.mutateAsync({ perShare: div })} />
               </div>
+              {d.instrument.status !== 'delisted' && (
+                <div className="flex items-end gap-2 border-t pt-3" style={{ borderColor: 'var(--line)' }}>
+                  <Field label="Giá mua lại để hủy niêm yết" hint={`Tối thiểu ${vnd(Math.max(d.instrument.last_price ?? 0, d.instrument.ipo_price))}`}>
+                    {(id) => <input id={id} type="number" inputMode="numeric" step={100} className="field num w-36" value={delistPrice || Math.max(d.instrument.last_price ?? 0, d.instrument.ipo_price)} onChange={(e) => setDelistPrice(Number(e.target.value))} />}
+                  </Field>
+                  <ConfirmButton label="Hủy niêm yết" title="Tự nguyện hủy niêm yết" message="Doanh nghiệp mua lại toàn bộ cổ phiếu của cổ đông bên ngoài với giá đã nhập; mọi lệnh đang chờ bị hủy. Không thể hoàn tác." onConfirm={() => delist.mutateAsync({ price: delistPrice || Math.max(d.instrument.last_price ?? 0, d.instrument.ipo_price) })} />
+                </div>
+              )}
             </div>
           ) : d.ipo.eligible ? (
             <div className="space-y-3">
@@ -946,6 +1006,11 @@ function Finance({ d }: { d: Detail }) {
             </div>
           )}
         </Panel>
+      </div>
+      <Deposits companyId={c.id} />
+      <div className="grid gap-5 xl:grid-cols-2">
+        <CashFlowStatement cf={d.cashFlow} title="Lưu chuyển tiền tệ tháng này" eyebrow="Từ đầu tháng game đến hiện tại" />
+        {d.reports[0]?.detail?.cashFlow && <CashFlowStatement cf={d.reports[0].detail.cashFlow} title={`Lưu chuyển tiền tệ ${monthLabel(d.reports[0].month)}`} eyebrow="Báo cáo đã chốt" />}
       </div>
       <Panel title="Sổ quỹ tiền mặt" eyebrow="60 bút toán gần nhất">
         <TableWrap>

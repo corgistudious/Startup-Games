@@ -1,0 +1,29 @@
+groups:
+  - name: startup
+    rules:
+      - alert: WorldClockStalled
+        expr: startup_world_tick_lag > 5
+        for: 5m
+        annotations: { summary: 'Đồng hồ thế giới bị trễ hơn 5 tick: worker có thể đã dừng' }
+      - alert: WorkerHeartbeatMissing
+        expr: startup_worker_heartbeat_age_seconds > 120
+        for: 2m
+        annotations: { summary: 'Không nhận được heartbeat của worker trong 2 phút' }
+      - alert: JobsFailing
+        expr: increase(startup_jobs_failed[15m]) > 0
+        annotations: { summary: 'Có job thất bại sau khi thử lại: kiểm tra Admin > Kinh tế & Hệ thống' }
+      - alert: JobBacklog
+        expr: startup_jobs_pending > 500
+        for: 10m
+        annotations: { summary: 'Hàng đợi job tồn đọng' }
+      - alert: LedgerImbalance
+        expr: startup_ledger_balanced == 0
+        annotations: { summary: 'Kiểm toán sổ cái thất bại: dừng phát hành và điều tra ngay' }
+      - alert: ApiErrorRate
+        expr: sum(rate(startup_http_requests_total{status=~"5.."}[5m])) / sum(rate(startup_http_requests_total[5m])) > 0.05
+        for: 5m
+        annotations: { summary: 'Tỷ lệ lỗi 5xx của API vượt 5%' }
+      - alert: SurveillanceAlertsOpen
+        expr: startup_surveillance_open_alerts > 0
+        for: 30m
+        annotations: { summary: 'Có cảnh báo thao túng chứng khoán chưa được xử lý' }

@@ -19,6 +19,8 @@ import {
   worldStatus,
   notify,
   FAVORITE_PARAMS,
+  haltSymbol,
+  nowMinute,
 } from '@startup/engine';
 
 const uuid = z.object({ id: z.string().uuid() });
@@ -182,7 +184,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: Ctx) {
     const { symbol } = z.object({ symbol: z.string().regex(/^[A-Z]{3,5}$/) }).parse(req.params);
     const { halted, reason } = z.object({ halted: z.boolean(), reason: z.string().trim().min(5).max(300) }).parse(req.body);
     await withTx(ctx.db, async (tx) => {
-      await tx.query(`UPDATE instruments SET status=$2, halt_reason=$3 WHERE symbol=$1 AND status <> 'delisted'`, [symbol, halted ? 'halted' : 'listed', halted ? reason : null]);
+      await haltSymbol(tx, symbol, halted, reason, await nowMinute(tx));
       await audit(tx, admin.id, halted ? 'exchange.halt' : 'exchange.resume', 'instrument', symbol, { reason });
     });
     return { ok: true };

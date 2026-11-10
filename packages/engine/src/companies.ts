@@ -24,6 +24,9 @@ export type CompanyRow = {
   brand: number;
   shares_total: number;
   insolvent_days: number;
+  overtime_hours: number;
+  benefit_level: number;
+  parent_company_id: string | null;
 };
 
 export function slugify(name: string) {
@@ -59,7 +62,7 @@ export async function createCompany(
   minute: number,
 ) {
   const user = await one<{ stage: number }>(tx, 'SELECT stage FROM users WHERE id = $1 FOR UPDATE', [userId]);
-  const owned = await one<{ n: number }>(tx, `SELECT count(*)::int AS n FROM companies WHERE owner_user_id = $1 AND status NOT IN ('bankrupt','closed')`, [userId]);
+  const owned = await one<{ n: number }>(tx, `SELECT count(*)::int AS n FROM companies WHERE owner_user_id = $1 AND parent_company_id IS NULL AND status NOT IN ('bankrupt','closed')`, [userId]);
   if (owned.n >= companyLimit(user.stage)) {
     fail('company_limit', `Giai đoạn hiện tại cho phép tối đa ${companyLimit(user.stage)} doanh nghiệp. Phát triển doanh nghiệp hiện có để mở rộng.`);
   }

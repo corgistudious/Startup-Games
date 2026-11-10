@@ -38,6 +38,7 @@ import {
   loansOf,
   quoteFreight,
   transitMinutes,
+  cashFlow,
 } from '@startup/engine';
 
 const idParam = z.object({ id: z.string().uuid() });
@@ -99,7 +100,8 @@ export async function companyRoutes(app: FastifyInstance, ctx: Ctx) {
         WHERE a.owner_type='company' AND a.owner_id=$1 AND a.code='cash' ORDER BY p.id DESC LIMIT 60`,
       [id],
     );
-    return { company, staff, equipment, inventory, orders, shipments, listings, campaigns, reports, taxBills, sales, monthToDate: mtd, balanceSheet: sheet, loans, credit, ipo, instrument, ledger, minute };
+    const cashFlowMtd = await cashFlow(ctx.db, id, from, minute + 1);
+    return { company, staff, equipment, inventory, orders, shipments, listings, campaigns, reports, taxBills, sales, monthToDate: mtd, cashFlow: cashFlowMtd, balanceSheet: sheet, loans, credit, ipo, instrument, ledger, minute };
   });
 
   app.post('/companies/:id/capital', async (req) => {

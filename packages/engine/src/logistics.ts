@@ -7,6 +7,7 @@ import { takeInventory, addInventory } from './production';
 import { ECON } from './config';
 import { seeded } from './rng';
 import { notifyCompanyOwner } from './notify';
+import { onShipmentDelivered } from './contracts';
 
 export function quoteFreight(goodsTotal: number, km: number) {
   return Math.max(ECON.freightMin, Math.round(goodsTotal * 0.012 + km * ECON.freightPerUnitKm * 600));
@@ -32,15 +33,26 @@ export async function purchase(tx: Tx, actorId: string | null, buyerId: string, 
   const seller = companies.get(sellerId)!;
   if (!['active', 'insolvent', 'licensing'].includes(buyer.status)) fail('not_active', 'Doanh nghiệp mua không còn hoạt động.');
   if (!['active', 'insolvent'].includes(seller.status)) fail('seller_inactive', 'Nhà cung cấp không hoạt động.');
-  if (buyer.owner_user_id && buyer.owner_user_id === seller.owner_user_id) {
-    // Allowed (supply chain within one owner), but at listed price only; no special pricing.
-  }
   const listing = await maybe<{ price: number; active: boolean }>(tx, 'SELECT price, active FROM listings WHERE company_id=$1 AND good_code=$2 AND b2b=true', [sellerId, good]);
   if (!listing || !listing.active) return fail('not_listed', 'Nhà cung cấp không chào bán mặt hàng này.');
   if (listing.price > maxUnitPrice) fail('price_changed', `Giá đã thay đổi thành ${listing.price.toLocaleString('vi-VN')} ₫, cao hơn mức bạn chấp nhận.`);
+  return shipGoods(tx, { actorId, buyer, seller, good, qty, unitPrice: listing.price, minute, key, kind: 'b2b_purchase' });
+}
 
+/**
+ * Move goods from seller to buyer at an agreed unit price: seller is paid now, goods travel
+ * and arrive at the ETA. Used by spot purchases and by long-term contract deliveries.
+ * Caller must have locked both company rows.
+ */
+export async function shipGoods(
+  tx: Tx,
+  o: { actorId: string | null; buyer: CompanyRow; seller: CompanyRow; good: string; qty: number; unitPrice: number; minute: number; key: string; kind: string; memoPrefix?: string },
+) {
+  const { buyer, seller, good, qty, minute, key } = o;
+  const buyerId = buyer.id;
+  const sellerId = seller.id;
   const costBasis = await takeInventory(tx, sellerId, good, qty);
-  const goodsTotal = listing.price * qty;
+  const goodsTotal = o.unitPrice * qty;
   const locs = await one<{ km: number }>(tx, 'SELECT SUM(logistics_km)::int AS km FROM locations WHERE code = ANY($1)', [[buyer.location_code, seller.location_code]]);
   const km = buyer.location_code === seller.location_code ? 10 : locs.km;
   const freight = quoteFreight(goodsTotal, km);
@@ -51,10 +63,10 @@ export async function purchase(tx: Tx, actorId: string | null, buyerId: string, 
 
   const res = await post(tx, {
     key,
-    kind: 'b2b_purchase',
-    memo: `Mua ${qty} ${g.unit} ${g.name} từ ${seller.name}`,
+    kind: o.kind,
+    memo: `${o.memoPrefix ?? 'Mua'} ${qty} ${g.unit} ${g.name} từ ${seller.name}`,
     minute,
-    actorId,
+    actorId: o.actorId,
     ref: { type: 'company', id: buyerId },
     lines: [
       { ...C(buyerId, 'cash'), amount: -(goodsTotal + freight) },
@@ -72,7 +84,7 @@ export async function purchase(tx: Tx, actorId: string | null, buyerId: string, 
     tx,
     `INSERT INTO shipments (buyer_company_id, seller_company_id, good_code, qty, unit_price, goods_total, freight, cost_basis, ordered_minute, quoted_eta_minute, eta_minute)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
-    [buyerId, sellerId, good, qty, listing.price, goodsTotal, freight, costBasis, minute, quoted, quoted + delay],
+    [buyerId, sellerId, good, qty, o.unitPrice, goodsTotal, freight, costBasis, minute, quoted, quoted + delay],
   );
   await tx.query(
     `INSERT INTO sales_daily (company_id, day, good_code, qty, revenue, customers) VALUES ($1,$2,$3,$4,$5,1)
@@ -104,6 +116,7 @@ export async function deliverShipment(tx: Tx, shipmentId: string, minute: number
     ],
   });
   await tx.query(`UPDATE shipments SET status='delivered', delivered_minute=$2 WHERE id=$1`, [s.id, s.eta_minute]);
+  await onShipmentDelivered(tx, s.id, s.eta_minute);
   const late = s.eta_minute > s.quoted_eta_minute;
   const g = await one<{ name: string; unit: string }>(tx, 'SELECT name, unit FROM goods WHERE code=$1', [s.good_code]);
   await notifyCompanyOwner(

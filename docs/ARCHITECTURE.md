@@ -88,3 +88,22 @@ Dòng tiền khép kín:
 - Mọi route Admin kiểm tra quyền ở server. Thao tác nhạy cảm bắt buộc có lý do và được ghi `audit_log`.
 - Không có tài khoản Admin mặc định: phải tạo bằng CLI với mật khẩu từ 14 ký tự do người vận hành nhập.
 - Không có secret nào trong repository.
+
+## Tính năng mở rộng (đợt 2)
+
+- **Nhân sự:** hàm `workState` (`packages/engine/src/workforce.ts`) là nơi duy nhất quyết định một nhân viên có đang làm việc không (ca thường, tăng ca, nghỉ phép). Sản xuất, bán lẻ và trả lương đều dùng hàm này. Tăng ca được trả 150% lương; thưởng và phúc lợi hạch toán vào chi phí lương.
+- **Hợp đồng:**
+  - Tiền cọc nằm ở chủ thể hệ thống `escrow` (`cash` / `escrow_held`), không thuộc bên nào cho đến khi hợp đồng kết thúc.
+  - Mỗi lần giao dùng cùng hàm `shipGoods` với mua giao ngay, nên sổ cái, ETA và hàng trễ giống hệt.
+  - Tiền phạt và hoàn tiền chỉ chuyển trong phạm vi số tiền bên phải trả đang có; không tạo tiền.
+  - Đơn giá phải nằm trong 60%–160% giá tham chiếu, để hợp đồng không thành kênh chuyển tiền.
+- **Tập đoàn:**
+  - `parent_company_id` thể hiện quan hệ mẹ/con; mọi thay đổi quyền sở hữu được ghi vào `ownership_events`.
+  - Mua lại NPC thì tiền mua quay về ngân hàng trung ương, tức giảm cung tiền.
+  - Sáp nhập chuyển từng số dư tài sản và nợ sang công ty mẹ. Chênh lệch giữa tài sản ròng và giá vốn đầu tư ghi vào vốn chủ sở hữu, nên sổ của từng chủ thể vẫn cân.
+- **Ngân hàng:** tiền gửi làm tăng thanh khoản cho vay của ngân hàng. Lãi tiền gửi do ngân hàng trả từ tiền mặt của chính nó.
+- **Sàn:**
+  - `cancelOrdersWhere` là đường duy nhất để hủy lệnh hàng loạt, luôn giải phóng tiền và cổ phiếu phong tỏa (phá sản, hủy niêm yết).
+  - Giám sát chạy mỗi giờ game; mỗi cảnh báo có khóa chống trùng.
+- **Báo cáo lưu chuyển tiền tệ:** dựng từ các bút toán chạm tài khoản `cash` / `cash_locked` của doanh nghiệp, phân loại theo loại bút toán (`packages/engine/src/cashflow.ts`).
+- **Đa ngôn ngữ:** câu tiếng Việt chính là khóa dịch (`apps/web/src/i18n`).

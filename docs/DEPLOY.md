@@ -57,6 +57,17 @@ npx wrangler pages deploy apps/web/dist --project-name <project> --branch main
 
 Cần xác định project Cloudflare Pages hiện đang phục vụ `startupvn.pages.dev`. **Không deploy vào project đó** cho tới khi có xác nhận. Cách an toàn nhất: tạo một project Pages mới cho source mới, kiểm tra kỹ, rồi mới quyết định chuyển domain.
 
+## Monitoring
+
+- Đặt `METRICS_TOKEN` trong `infra/docker/.env` và ghi cùng giá trị vào file `infra/docker/metrics_token` (file này không được commit).
+- Bật Prometheus:
+
+```bash
+docker compose -f infra/docker/docker-compose.yml --env-file infra/docker/.env --profile monitoring up -d
+```
+
+- Luật cảnh báo nằm ở `infra/monitoring/alerts.yml`: đồng hồ thế giới trễ, mất heartbeat của worker, job lỗi hoặc tồn đọng, sổ cái lệch, tỷ lệ lỗi 5xx, cảnh báo thao túng chưa xử lý. Prometheus chỉ bind `127.0.0.1`; nối Alertmanager hoặc Grafana tùy hạ tầng.
+
 ## Backup và khôi phục
 
 - Container `backup` chạy `pg_dump -Fc` mỗi 24 giờ vào volume `backups`, giữ 14 ngày.

@@ -33,6 +33,7 @@ services:
       DATABASE_URL: postgres://startup:${POSTGRES_PASSWORD}@db:5432/startup
       PORT: 8080
       CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
     ports:
       - '127.0.0.1:${API_PORT:-8090}:8080'
     healthcheck:
@@ -70,9 +71,24 @@ services:
     entrypoint: ['/bin/sh', '/backup-loop.sh']
     networks: [internal]
 
+  # Optional: docker compose --profile monitoring up -d
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles: [monitoring]
+    restart: unless-stopped
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./metrics_token:/etc/prometheus/metrics_token:ro
+      - promdata:/prometheus
+    ports:
+      - '127.0.0.1:${PROMETHEUS_PORT:-9091}:9090'
+    networks: [internal]
+
 volumes:
   pgdata:
   backups:
+  promdata:
 
 networks:
   internal:
