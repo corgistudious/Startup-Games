@@ -1,0 +1,22 @@
+{
+  "name": "@startup/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "migrate": "tsx src/cli/migrate.ts",
+    "seed": "tsx src/cli/seed.ts",
+    "admin:create": "tsx src/cli/create-admin.ts"
+  },
+  "dependencies": {
+    "@startup/shared": "workspace:*",
+    "pg": "8.13.1"
+  },
+  "devDependencies": {
+    "@types/pg": "8.11.10"
+  }
+}

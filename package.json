@@ -1,0 +1,31 @@
+{
+  "name": "startup-vn",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev:server": "pnpm --filter @startup/server dev",
+    "dev:worker": "pnpm --filter @startup/worker dev",
+    "dev:web": "pnpm --filter @startup/web dev",
+    "migrate": "pnpm --filter @startup/engine migrate",
+    "seed": "pnpm --filter @startup/engine seed",
+    "admin:create": "pnpm --filter @startup/engine admin:create",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "test": "pnpm -r --workspace-concurrency=1 test",
+    "build": "pnpm -r build"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.17.0",
+    "@types/node": "22.10.2",
+    "eslint": "9.17.0",
+    "tsup": "8.3.5",
+    "tsx": "4.19.2",
+    "typescript": "5.7.2",
+    "typescript-eslint": "8.18.1",
+    "vitest": "2.1.9"
+  },
+  "type": "module"
+}
